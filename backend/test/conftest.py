@@ -43,6 +43,7 @@ from app.models import Meet, Gymnast, MeetEntry, MeetStatus, \
 
 def make_meet(
         db_session,
+        district=None,
         name="Test Meet",
         location="Test Location",
         start_date=date(2026, 6, 1),
@@ -50,6 +51,7 @@ def make_meet(
         status=MeetStatus.scheduled,
 ) -> Meet:
     meet = Meet(
+        district_id=district.id if district else None,
         name=name,
         location=location,
         start_date=start_date,

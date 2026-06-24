@@ -49,11 +49,14 @@ class Meet(Base):
     __tablename__ = "meets"
 
     id:         Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    district_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("districts.id", ondelete="SET NULL"), nullable=True)
     name:       Mapped[str] = mapped_column(String, index=True, nullable=False)
     location:   Mapped[str] = mapped_column(String, index=True, nullable=False)
     start_date: Mapped[date_type] = mapped_column(Date, nullable=False)
     end_date:   Mapped[date_type] = mapped_column(Date, nullable=False)
     status:     Mapped[MeetStatus] = mapped_column(Enum(MeetStatus), default=MeetStatus.draft, nullable=False)
+
+    district: Mapped[Optional["District"]] = relationship("District", back_populates="meets")
 
     entries: Mapped[list["MeetEntry"]] = relationship(
         "MeetEntry", 
@@ -74,6 +77,7 @@ class District(Base):
 
     # Restrict deletion of districts that have clubs associated with them
     clubs: Mapped[list["Club"]] = relationship("Club", back_populates="district", passive_deletes=True)
+    meets: Mapped[list["Meet"]] = relationship("Meet", back_populates="district", passive_deletes=True)
 
     __table_args__ = (
         UniqueConstraint("abbreviation", name="uq_district_abbreviation"), 
@@ -118,6 +122,7 @@ class Gymnast(Base):
     __tablename__ = "gymnasts"
 
     id:             Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    #Gymnast can be independent of a club, so club_id is optional
     club_id:        Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("clubs.id", ondelete="RESTRICT"), nullable=True)
     first_name:     Mapped[str] = mapped_column(String, index=True, nullable=False)
     last_name:      Mapped[str] = mapped_column(String, index=True, nullable=False)

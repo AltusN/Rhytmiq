@@ -12,8 +12,8 @@ import pytest
 from datetime import date
 from sqlalchemy.exc import IntegrityError
 
-from app.models import Apparatus, Meet, MeetEntry, Routine, MeetStatus
-from test.conftest import make_meet, make_gymnast, make_meet_entry, make_routine
+from app.models import Apparatus, District, Meet, MeetEntry, Routine, MeetStatus
+from test.conftest import make_meet, make_gymnast, make_meet_entry, make_routine, make_district
 
 
 # Create a meet with valid data
@@ -28,6 +28,28 @@ def test_meet_create_with_required_fields(db_session):
     assert fetched.start_date == date(2026, 6, 1)
     assert fetched.end_date == date(2026, 6, 2)
     assert fetched.status == MeetStatus.scheduled
+
+
+def test_meet_can_be_national_with_no_district(db_session):
+    meet = make_meet(db_session, district=None)
+    db_session.commit()
+
+    fetched = db_session.query(Meet).filter_by(id=meet.id).first()
+    assert fetched is not None
+    assert fetched.district_id is None
+    assert fetched.district is None
+
+
+def test_meet_can_belong_to_district(db_session):
+    district = make_district(db_session)
+    meet = make_meet(db_session, district=district)
+    db_session.commit()
+
+    fetched = db_session.query(Meet).filter_by(id=meet.id).first()
+    assert fetched is not None
+    assert fetched.district_id == district.id
+    assert fetched.district is not None
+    assert fetched.district.id == district.id
 
 def test_meet_default_status_is_draft(db_session):
     meet = Meet(
@@ -60,6 +82,20 @@ def test_meet_end_date_before_start_date_raises_error(db_session):
         location="Invalid Location",
         start_date=date(2026, 6, 2),
         end_date=date(2026, 6, 1),
+    )
+    db_session.add(meet)
+
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_meet_invalid_district_id_raises_error(db_session):
+    meet = Meet(
+        district_id=99999,
+        name="Invalid District Meet",
+        location="Invalid Location",
+        start_date=date(2026, 6, 1),
+        end_date=date(2026, 6, 2),
     )
     db_session.add(meet)
 
@@ -119,3 +155,16 @@ def test_meet_entry_routine_relationship(db_session):
     fetched_entry = db_session.query(MeetEntry).first()
     #Routines is a list of routines associated with the entry
     assert len(fetched_entry.routines) == 2
+
+
+def test_deleting_district_nulls_meet_district_id(db_session):
+    district = make_district(db_session)
+    meet = make_meet(db_session, district=district)
+    db_session.commit()
+
+    db_session.delete(district)
+    db_session.commit()
+    db_session.refresh(meet)
+
+    assert db_session.query(District).filter_by(id=district.id).first() is None
+    assert meet.district_id is None

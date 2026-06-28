@@ -1,4 +1,4 @@
-""" Test suite for the coach router. 
+""" Test suite for the coach router.
     Coach is under club. Nothing special about coach
     but, you can't create a coach without a club, so we need to make sure
     that the club exists before creating a coach.
@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm.session import Session
 
 from test.conftest import make_club, make_coach, make_district
+
 
 ##-- POST /coaches --##
 def test_create_coach_happy_path(client: TestClient, db_session: Session):
@@ -178,7 +179,7 @@ def test_list_coaches_filtered_by_club(client: TestClient, db_session: Session):
     club_2 = make_club(db_session, district, name="Club Two", abbreviation="C2")
 
     coach_1 = make_coach(db_session, first_name="Ian", last_name="Scott", club=club_1)
-    coach_2 = make_coach(db_session, first_name="Jack", last_name="Adams", club=club_2)
+    make_coach(db_session, first_name="Jack", last_name="Adams", club=club_2)
 
     response = client.get(f"/coaches?club_id={club_1.id}")
 
@@ -250,7 +251,7 @@ def test_update_coach_not_found(client: TestClient):
 def test_update_coach_duplicate_name(client: TestClient, db_session: Session):
     district = make_district(db_session)
     club = make_club(db_session, district)
-    coach_1 = make_coach(db_session, first_name="Noah", last_name="Davis", club=club)
+    make_coach(db_session, first_name="Noah", last_name="Davis", club=club)
     coach_2 = make_coach(db_session, first_name="Olivia", last_name="Miller", club=club)
 
     response = client.patch(

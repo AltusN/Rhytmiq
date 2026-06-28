@@ -1,5 +1,5 @@
-""" CRUD for Coaches. 
-    
+""" CRUD for Coaches.
+
     - POST explicit db.get(Club) to ensure club exists before creating coach
     - GET list: optional ?club_id= filter
     - PATCH: exclude_unset=True so partial updates don't clobber untouched fields
@@ -102,4 +102,4 @@ def delete_coach(coach_id: int, db: Annotated[Session, Depends(get_db)]):
         raise HTTPException(
             status_code=409,
             detail=f"Cannot delete coach with id {coach_id} because they have associated gymnasts"
-        ) from None 
+        ) from None

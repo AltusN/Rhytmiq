@@ -2,8 +2,8 @@ from fastapi import FastAPI
 
 from app.db import lifespan
 from app.routers.club import router as club_router
-from app.routers.district import router as district_router
 from app.routers.coach import router as coach_router
+from app.routers.district import router as district_router
 
 app = FastAPI(
     title="Rhytmiq API",

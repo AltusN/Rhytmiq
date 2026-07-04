@@ -4,6 +4,7 @@ from app.db import lifespan
 from app.routers.club import router as club_router
 from app.routers.coach import router as coach_router
 from app.routers.district import router as district_router
+from app.routers.group import router as group_router
 from app.routers.gymnast import router as gymnast_router
 from app.routers.meet import router as meet_router
 from app.routers.meet_entry import router as meet_entry_router
@@ -21,6 +22,7 @@ app.include_router(coach_router)
 app.include_router(gymnast_router)
 app.include_router(meet_router)
 app.include_router(meet_entry_router)
+app.include_router(group_router)
 
 @app.get("/", tags=["/health"])
 def root():

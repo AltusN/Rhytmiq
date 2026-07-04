@@ -16,17 +16,31 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Club, Gymnast
+from app.models import Club, Group, Gymnast
 from app.schemas.gymnast import GymnastCreate, GymnastRead, GymnastUpdate
 
 router = APIRouter(prefix="/gymnasts", tags=["gymnasts"])
 
 @router.post("/", response_model=GymnastRead, status_code=status.HTTP_201_CREATED)
 def create_gymnast(payload: GymnastCreate, db: Annotated[Session, Depends(get_db)]):
+    group = None
+    if payload.group_id is not None:
+        group = db.get(Group, payload.group_id)
+        if group is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Group with id {payload.group_id} not found",
+            )
+
     if payload.club_id is not None:
         club = db.get(Club, payload.club_id)
         if club is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Club with id {payload.club_id} not found")
+        if group is not None and group.club_id != payload.club_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="group_id must belong to the provided club_id",
+            )
 
     gymnast = Gymnast(**payload.model_dump())
     db.add(gymnast)
@@ -66,12 +80,33 @@ def update_gymnast(gymnast_id: int, payload: GymnastUpdate, db: Annotated[Sessio
     if gymnast is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Gymnast with id {gymnast_id} not found")
 
-    if payload.club_id is not None:
-        club = db.get(Club, payload.club_id)
-        if club is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Club with id {payload.club_id} not found")
+    update_data = payload.model_dump(exclude_unset=True)
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    if update_data.get("club_id") is not None:
+        club = db.get(Club, update_data["club_id"])
+        if club is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Club with id {update_data['club_id']} not found",
+            )
+
+    target_group_id = update_data.get("group_id", gymnast.group_id)
+    target_club_id = update_data.get("club_id", gymnast.club_id)
+
+    if target_group_id is not None:
+        group = db.get(Group, target_group_id)
+        if group is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Group with id {target_group_id} not found",
+            )
+        if target_club_id is not None and group.club_id != target_club_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="group_id must belong to the gymnast's club_id",
+            )
+
+    for field, value in update_data.items():
         setattr(gymnast, field, value)
 
     try:

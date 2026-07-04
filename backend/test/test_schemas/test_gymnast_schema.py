@@ -110,6 +110,24 @@ class TestGymnastCreateSchema:
         with pytest.raises(ValidationError):
             GymnastCreate.model_validate(data)
 
+    def test_gymnast_create_schema_valid_group_id(self):
+        data = {
+            "group_id": 1,
+            "first_name": "John",
+            "last_name": "Doe",
+        }
+        gymnast_create = GymnastCreate.model_validate(data)
+        assert gymnast_create.group_id == 1
+
+    def test_gymnast_create_schema_invalid_group_id_zero(self):
+        data = {
+            "group_id": 0,
+            "first_name": "John",
+            "last_name": "Doe",
+        }
+        with pytest.raises(ValidationError):
+            GymnastCreate.model_validate(data)
+
     def test_gymnast_create_schema_invalid_first_name(self):
         data = {
             "first_name": "",  # Invalid first_name
@@ -144,6 +162,15 @@ class TestGymnastCreateSchema:
         }
         with pytest.raises(ValidationError):
             GymnastCreate.model_validate(data)
+
+    def test_gymnast_create_null_group_id(self):
+        data = {
+            "first_name": "John",
+            "last_name": "Doe",
+            "group_id": None,  # Explicitly setting group_id to None
+        }
+        gymnast_create = GymnastCreate.model_validate(data)
+        assert gymnast_create.group_id is None
 
 
 class TestGymnastUpdateSchema:
@@ -187,6 +214,20 @@ class TestGymnastUpdateSchema:
     def test_gymnast_update_club_id_invalid(self):
         data = {
             "club_id": -1,  # Invalid club_id
+        }
+        with pytest.raises(ValidationError):
+            GymnastUpdate.model_validate(data)
+
+    def test_gymnast_update_group_id_valid(self):
+        data = {
+            "group_id": 2,
+        }
+        gymnast_update = GymnastUpdate.model_validate(data)
+        assert gymnast_update.group_id == 2
+
+    def test_gymnast_update_group_id_invalid(self):
+        data = {
+            "group_id": -1,
         }
         with pytest.raises(ValidationError):
             GymnastUpdate.model_validate(data)
@@ -268,11 +309,14 @@ class TestGymnastUpdateSchema:
             GymnastUpdate.model_validate(data)
 
 
+
+
 class TestGymnastReadSchema:
     def test_gymnast_read_schema_valid(self):
         data = {
             "id": 1,
             "club_id": 1,
+            "group_id": 2,
             "first_name": "John",
             "last_name": "Doe",
             "date_of_birth": date(2000, 1, 1),
@@ -281,6 +325,7 @@ class TestGymnastReadSchema:
         gymnast_read = GymnastRead.model_validate(data)
         assert gymnast_read.id == 1
         assert gymnast_read.club_id == 1
+        assert gymnast_read.group_id == 2
         assert gymnast_read.first_name == "John"
         assert gymnast_read.last_name == "Doe"
         assert gymnast_read.date_of_birth == date(2000, 1, 1)

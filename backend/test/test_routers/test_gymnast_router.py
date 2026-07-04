@@ -6,7 +6,7 @@
     - Gymnasts can be filtered by club_id when listing  gymnasts.
 """
 
-from test.conftest import make_club, make_district, make_gymnast
+from test.conftest import make_club, make_district, make_group, make_gymnast
 
 
 def test_create_gymnast_happy_path(client, db_session):
@@ -81,6 +81,86 @@ def test_gymnast_create_club_not_found(client, db_session):
     )
     assert response.status_code == 404
     assert "club" in response.json()["detail"].lower()
+
+
+def test_create_gymnast_with_group_success(client, db_session):
+    district = make_district(db_session)
+    club = make_club(db_session, district)
+    group = make_group(db_session, club=club, name="Junior Group A")
+
+    response = client.post(
+        "/gymnasts",
+        json={
+            "club_id": club.id,
+            "group_id": group.id,
+            "first_name": "Lala",
+            "last_name": "Kramarenko",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["club_id"] == club.id
+    assert body["group_id"] == group.id
+
+
+def test_create_gymnast_with_group_no_club_success(client, db_session):
+    # Independent gymnasts (no club) can still belong to a group.
+    district = make_district(db_session)
+    club = make_club(db_session, district)
+    group = make_group(db_session, club=club, name="Junior Group B")
+
+    response = client.post(
+        "/gymnasts",
+        json={
+            "group_id": group.id,
+            "first_name": "Alina",
+            "last_name": "Kabaeva",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["club_id"] is None
+    assert body["group_id"] == group.id
+
+
+def test_create_gymnast_group_not_found(client, db_session):
+    district = make_district(db_session)
+    club = make_club(db_session, district)
+
+    response = client.post(
+        "/gymnasts",
+        json={
+            "club_id": club.id,
+            "group_id": 9999,
+            "first_name": "Dina",
+            "last_name": "Averina",
+        },
+    )
+
+    assert response.status_code == 404
+    assert "group" in response.json()["detail"].lower()
+
+
+def test_create_gymnast_group_club_mismatch_rejected(client, db_session):
+    district = make_district(db_session)
+    club1 = make_club(db_session, district, name="Club One")
+    club2 = make_club(db_session, district, name="Club Two")
+    group2 = make_group(db_session, club=club2, name="Group Two")
+
+    response = client.post(
+        "/gymnasts",
+        json={
+            "club_id": club1.id,
+            "group_id": group2.id,
+            "first_name": "Arina",
+            "last_name": "Averina",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "group" in response.json()["detail"].lower()
 
 def test_create_gymnast_duplicate(client, db_session):
     # Create a district and a club first
@@ -274,6 +354,122 @@ def test_update_gymnast_club_not_found(client, db_session):
     )
     assert response.status_code == 404
     assert "club" in response.json()["detail"].lower()
+
+
+def test_update_gymnast_group_success(client, db_session):
+    district = make_district(db_session)
+    club = make_club(db_session, district)
+    group = make_group(db_session, club=club, name="Senior Group A")
+    gymnast = make_gymnast(db_session, club=club, first_name="Dina", last_name="Averina")
+
+    response = client.patch(
+        f"/gymnasts/{gymnast.id}",
+        json={"group_id": group.id},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["group_id"] == group.id
+
+
+def test_update_gymnast_clear_group(client, db_session):
+    district = make_district(db_session)
+    club = make_club(db_session, district)
+    group = make_group(db_session, club=club, name="Senior Group B")
+    gymnast = make_gymnast(
+        db_session,
+        club=club,
+        group=group,
+        first_name="Arina",
+        last_name="Averina",
+    )
+
+    response = client.patch(
+        f"/gymnasts/{gymnast.id}",
+        json={"group_id": None},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["group_id"] is None
+
+
+def test_update_gymnast_group_not_found(client, db_session):
+    district = make_district(db_session)
+    club = make_club(db_session, district)
+    gymnast = make_gymnast(db_session, club=club, first_name="Dina", last_name="Averina")
+
+    response = client.patch(
+        f"/gymnasts/{gymnast.id}",
+        json={"group_id": 9999},
+    )
+
+    assert response.status_code == 404
+    assert "group" in response.json()["detail"].lower()
+
+
+def test_update_gymnast_group_club_mismatch_rejected(client, db_session):
+    district = make_district(db_session)
+    club1 = make_club(db_session, district, name="Club One")
+    club2 = make_club(db_session, district, name="Club Two")
+    group2 = make_group(db_session, club=club2, name="Group Two")
+    gymnast = make_gymnast(db_session, club=club1, first_name="Dina", last_name="Averina")
+
+    response = client.patch(
+        f"/gymnasts/{gymnast.id}",
+        json={"group_id": group2.id},
+    )
+
+    assert response.status_code == 409
+    assert "group" in response.json()["detail"].lower()
+
+
+def test_update_gymnast_club_conflicts_with_existing_group(client, db_session):
+    district = make_district(db_session)
+    club1 = make_club(db_session, district, name="Club One")
+    club2 = make_club(db_session, district, name="Club Two")
+    group1 = make_group(db_session, club=club1, name="Group One")
+    gymnast = make_gymnast(
+        db_session,
+        club=club1,
+        group=group1,
+        first_name="Arina",
+        last_name="Averina",
+    )
+
+    response = client.patch(
+        f"/gymnasts/{gymnast.id}",
+        json={"club_id": club2.id},
+    )
+
+    assert response.status_code == 409
+    assert "group" in response.json()["detail"].lower()
+
+def test_update_gymnast_clear_club_keeps_group(client, db_session):
+    # A gymnast can drop club membership while remaining in the club's group
+    # (e.g. going independent) — the group/club mismatch check should not
+    # fire when club_id is being cleared, not conflicted.
+    district = make_district(db_session)
+    club = make_club(db_session, district)
+    group = make_group(db_session, club=club, name="Senior Group C")
+    gymnast = make_gymnast(
+        db_session,
+        club=club,
+        group=group,
+        first_name="Alina",
+        last_name="Kabaeva",
+    )
+
+    response = client.patch(
+        f"/gymnasts/{gymnast.id}",
+        json={"club_id": None},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["club_id"] is None
+    assert body["group_id"] == group.id
+
 
 def test_update_gymnast_duplicate(client, db_session):
     district = make_district(db_session)

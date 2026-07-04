@@ -17,7 +17,7 @@ def test_create_district_success(client, db_session):
     assert body["abbreviation"] == "EC"
     assert "id" in body
 
-def test_district_create_with_whitespace_name(client, db_session):
+def test_district_create_with_whitespace_name(client):
     response = client.post(
         "/districts",
         json={"name": "  Western Cape  ", "abbreviation": "WC"},

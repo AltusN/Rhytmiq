@@ -12,7 +12,11 @@ Design notes:
   transitions map. Any status → cancelled is always permitted (besides in_progress).
   This will cause a conflict if attempted.
   Sending the current status is a no-op (not an error).
-- DELETE: cascades to MeetEntry/Routine via ORM. No RESTRICT concern.
+- DELETE: cascades to MeetEntry/Routine via ORM (no RESTRICT concern), but
+  blocked (409) for in_progress or completed meets — an in_progress meet
+  has live state you don't want to yank out from under it, and a completed
+  meet is the historical record of who competed and on what apparatus;
+  deleting it would silently erase that history with no recovery path.
 """
 
 from datetime import date
@@ -37,6 +41,7 @@ ALLOWED_STATUS_TRANSITIONS: dict[MeetStatus, set[MeetStatus]] = {
     MeetStatus.cancelled: set(),
 }
 
+
 def _validate_status_transition(current: MeetStatus, new: MeetStatus) -> None:
     if current == new:
         return  # No-op
@@ -47,11 +52,9 @@ def _validate_status_transition(current: MeetStatus, new: MeetStatus) -> None:
             detail=f"Invalid status transition from {current.value} to {new.value}.",
         )
 
+
 def _validate_partial_dates(
-        incoming_start: date | None,
-        incoming_end: date | None,
-        stored_start: date,
-        stored_end: date
+    incoming_start: date | None, incoming_end: date | None, stored_start: date, stored_end: date
 ) -> None:
     """
     Validate incoming start/end dates against stored values.
@@ -67,13 +70,17 @@ def _validate_partial_dates(
             detail="end_date cannot be before start_date.",
         )
 
+
 ##-- Post --##
 @router.post("/", response_model=MeetRead, status_code=status.HTTP_201_CREATED)
 def create_meet(payload: MeetCreate, db: Annotated[Session, Depends(get_db)]):
     if payload.district_id is not None:
         district = db.get(District, payload.district_id)
         if district is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"District with id {payload.district_id} not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"District with id {payload.district_id} not found",
+            )
 
     meet = Meet(**payload.model_dump())
     db.add(meet)
@@ -84,9 +91,12 @@ def create_meet(payload: MeetCreate, db: Annotated[Session, Depends(get_db)]):
         db.refresh(meet)
     except IntegrityError as e:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Integrity error while creating meet.") from e
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Integrity error while creating meet."
+        ) from e
 
     return meet
+
 
 ##-- Get --##
 @router.get("/", response_model=list[MeetRead])
@@ -103,6 +113,7 @@ def list_meets(
 
     return query.all()
 
+
 @router.get("/{meet_id}", response_model=MeetRead)
 def get_meet(meet_id: int, db: Annotated[Session, Depends(get_db)]) -> Meet:
     meet = db.get(Meet, meet_id)
@@ -110,12 +121,15 @@ def get_meet(meet_id: int, db: Annotated[Session, Depends(get_db)]) -> Meet:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meet not found")
     return meet
 
+
 ##-- Patch --##
 @router.patch("/{meet_id}", response_model=MeetRead)
 def update_meet(meet_id: int, payload: MeetUpdate, db: Annotated[Session, Depends(get_db)]) -> Meet:
     meet = db.get(Meet, meet_id)
     if not meet:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Meet {meet_id} not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Meet {meet_id} not found"
+        )
 
     updates = payload.model_dump(exclude_unset=True)
 
@@ -125,7 +139,10 @@ def update_meet(meet_id: int, payload: MeetUpdate, db: Annotated[Session, Depend
         if district_id is not None:
             district = db.get(District, district_id)
             if district is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"District with id {district_id} not found")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"District with id {district_id} not found",
+                )
 
     # Date validation: if both dates are present, the schema validator already checks.
     # If only one is present, we need to validate against the stored value.
@@ -137,7 +154,7 @@ def update_meet(meet_id: int, payload: MeetUpdate, db: Annotated[Session, Depend
             incoming_start=incoming_start,
             incoming_end=incoming_end,
             stored_start=meet.start_date,
-            stored_end=meet.end_date
+            stored_end=meet.end_date,
         )
 
     # Status transition validation
@@ -154,9 +171,12 @@ def update_meet(meet_id: int, payload: MeetUpdate, db: Annotated[Session, Depend
         db.refresh(meet)
     except IntegrityError as e:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Integrity error while updating meet.") from e
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Integrity error while updating meet."
+        ) from e
 
     return meet
+
 
 @router.delete("/{meet_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_meet(meet_id: int, db: Annotated[Session, Depends(get_db)]) -> None:
@@ -165,7 +185,13 @@ def delete_meet(meet_id: int, db: Annotated[Session, Depends(get_db)]) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meet not found")
 
     if meet.status == MeetStatus.in_progress:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot delete a meet that is in progress")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Cannot delete a meet that is in progress"
+        )
+    if meet.status == MeetStatus.completed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Cannot delete a meet that is completed"
+        )
 
     db.delete(meet)
     db.commit()

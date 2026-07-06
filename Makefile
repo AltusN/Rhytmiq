@@ -1,6 +1,6 @@
 include .env
 
-.PHONY: dev migration test reset
+.PHONY: dev migration test reset seed
 
 dev:
 	docker compose up -d
@@ -19,6 +19,9 @@ test:
 	cd backend && .venv/bin/pytest
 
 reset:
-	docker compose down
+	docker compose down -v
 	sudo rm -rf db_data
 	$(MAKE) dev
+
+seed:
+	cd backend && .venv/bin/python -m scripts.seed_demo_data

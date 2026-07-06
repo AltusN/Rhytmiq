@@ -16,6 +16,9 @@ from app.models import Base
 config = context.config
 
 # set the SQLAlchemy URL from the environment variable
+if POSTGRESQL_DATABASE_URL is None:
+    raise ValueError("POSTGRESQL_DATABASE_URL environment variable is not set")
+
 config.set_main_option("sqlalchemy.url", POSTGRESQL_DATABASE_URL)
 
 # Interpret the config file for Python logging.

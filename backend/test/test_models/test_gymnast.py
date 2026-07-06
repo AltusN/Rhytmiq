@@ -15,7 +15,7 @@ Covers:
 from datetime import date
 
 import pytest
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 
 from app.models import Gymnast, Meet, MeetEntry, Routine
 from test.conftest import make_gymnast, make_meet, make_meet_entry, make_routine
@@ -141,16 +141,12 @@ def test_gymnast_registered_in_multiple_meets(db_session):
 
 
 def test_country_code_max_length(db_session):
-    """country_code is VARCHAR(3) — a 4-character code should be truncated or rejected."""
+    """country_code is VARCHAR(3) — Postgres rejects a too-long value with DataError."""
     gymnast = Gymnast(first_name="Test", last_name="Gymnast", country_code="TOOLONG")
     db_session.add(gymnast)
-    db_session.commit()
 
-    # SQLite doesn't enforce VARCHAR length — fetch and assert it was stored as-is.
-    # This test documents the current behaviour; swap to pytest.raises(IntegrityError)
-    # when migrating to PostgreSQL, which does enforce length.
-    fetched = db_session.query(Gymnast).filter_by(last_name="Gymnast").first()
-    assert fetched.country_code == "TOOLONG"
+    with pytest.raises(DataError):
+        db_session.commit()
 
 
 def test_gymnast_cascasde_delete(db_session):

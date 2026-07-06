@@ -1,14 +1,18 @@
+import os
 from datetime import date
 from itertools import count
+from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker
+from alembic import command
+from alembic.config import Config
+from dotenv import load_dotenv
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from app.models import (
     AgeGroup,
     Apparatus,
-    Base,
     Club,
     Coach,
     District,
@@ -22,38 +26,45 @@ from app.models import (
     RoutineProfile,
 )
 
+# None of the imports above import app.db, so it's still safe to set this here, before
+# app.db gets imported for the first time (e.g. by test_routers/conftest.py's `from
+# app.main import app`) elsewhere in the test session -- app.db reads this env var into a
+# module-level constant once, at import time, so this must run before that happens.
+load_dotenv()
+os.environ["POSTGRESQL_DATABASE_URL"] = os.environ["POSTGRESQL_TEST_DATABASE_URL"]
+
 _district_seq = count(1)
 _club_seq = count(1)
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+engine = create_engine(os.environ["POSTGRESQL_TEST_DATABASE_URL"])
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _apply_migrations():
+    """
+    Apply migrations to the test database before running tests.
+    """
+    command.upgrade(Config(os.path.join(BACKEND_ROOT, "alembic.ini")), "head")
 
 
 @pytest.fixture(scope="function")
 def db_session():
     """
-    Provides a fresh in memory SQLite session for each test function
-
-    - PRAGMA foreign_keys=ON is set to enforce foreign key constraints in SQLite. Default
-    is off, and we need to test referential integrity.
-    - Base.metadata.drop_all is not needed for in-memory SQLite databases as they are
-    discarded after each test function. But may want to use postgress later
+    Create a new database session for a test.
     """
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-    )
-
-    # Enable foreign key constraints in SQLite
-    @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(db_conn, _):
-        db_conn.execute("PRAGMA foreign_keys=ON")
-
-    Base.metadata.create_all(bind=engine)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    session = SessionLocal()
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = Session(bind=connection)
 
     yield session
 
     session.close()
-    Base.metadata.drop_all(bind=engine)
+    # A failed flush/commit inside the test (e.g. asserting on an IntegrityError) can
+    # already end this transaction as part of the Session's own error handling.
+    if transaction.is_active:
+        transaction.rollback()
+    connection.close()
 
 
 # == Helper functions to create database objects for testing ==#
@@ -121,8 +132,8 @@ def make_gymnast(
     db_session,
     first_name="Anna",
     last_name="Petrov",
-    club=None, # Optional[Club] = None,
-    group=None, # Optional[Group] = None,
+    club=None,  # Optional[Club] = None,
+    group=None,  # Optional[Group] = None,
     date_of_birth=date(2016, 10, 1),
     country_code="BLR",
     create_club_if_none=True,
@@ -142,6 +153,7 @@ def make_gymnast(
     db_session.add(gymnast)
     db_session.flush()  # Get gymnast.id populated
     return gymnast
+
 
 def make_group(
     db_session,
@@ -178,6 +190,7 @@ def make_meet_entry(
     db_session.flush()  # Get entry.id populated
     return entry
 
+
 def make_routine_profile(
     db_session,
     gymnast=None,
@@ -192,12 +205,13 @@ def make_routine_profile(
         gymnast_id=gymnast.id if gymnast else None,
         group_id=group.id if group else None,
         apparatus=apparatus,
-        level = level,
+        level=level,
         music_url=music_url,
     )
     db_session.add(routine_profile)
     db_session.flush()  # Get routine_profile.id populated
     return routine_profile
+
 
 def make_routine(
     db_session,

@@ -14,8 +14,9 @@ def test_create_club_happy_path(client, db_session):
     )
 
     assert response.status_code == 201
-    assert response.json() == {
-        "id": 1,
+    body = response.json()
+    assert isinstance(body.pop("id"), int)
+    assert body == {
         "name": "Western Province Warriors",
         "district_id": district.id,
         "abbreviation": "WPW",

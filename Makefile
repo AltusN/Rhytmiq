@@ -15,7 +15,6 @@ migration:
 	backend/.venv/bin/alembic -c backend/alembic.ini revision --autogenerate -m "$(name)"
 
 test:
-	POSTGRESQL_DATABASE_URL=$(POSTGRESQL_TEST_DATABASE_URL) backend/.venv/bin/alembic -c backend/alembic.ini upgrade head
 	cd backend && .venv/bin/pytest
 
 reset:

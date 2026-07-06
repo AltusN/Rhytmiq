@@ -6,11 +6,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Rhytmiq: a FIG-compliant API for managing rhythmic gymnastics meets — districts, clubs,
 coaches, gymnasts, groups, meets, meet entries, routines, and routine profiles. FastAPI +
-Pydantic v2 + SQLAlchemy 2.0, SQLite for local dev/tests. All code lives under `backend/`.
+Pydantic v2 + SQLAlchemy 2.0 + Alembic, backed by a dockerized Postgres. All code lives
+under `backend/`. The test suite still runs against SQLite in-memory (see
+`test/conftest.py`) — moving it onto Postgres is pending.
 
 ## Commands
 
-All commands run from `backend/`.
+From the **repo root** (needs `.env`, copied from `.env.example`):
+
+```bash
+make dev                      # docker compose up -d + alembic upgrade head
+make migration name="..."     # alembic revision --autogenerate
+make test                     # migrate the test db + run pytest
+make seed                     # populate demo data across every table
+make reset                    # wipe the local Postgres volume, start fresh
+```
+
+All other commands run from `backend/`.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
@@ -28,15 +40,22 @@ ruff format .                   # format
 `pre-commit` runs `ruff --fix` + `ruff format` on commit but isn't in `requirements.txt` —
 install separately and run `pre-commit install` once.
 
-The SQLite schema is created automatically on startup via `app/db.py:init_db`; there is no
-migration step for local dev (alembic is a dependency but not yet wired up).
+The schema is never auto-created on app startup — `alembic upgrade head` is the only way to
+build or update it. Adding a new value to an existing enum (e.g. a new `Level`) is not
+detected by autogenerate and needs a hand-written `op.execute("ALTER TYPE ... ADD VALUE ...")`
+migration.
 
 ## Architecture
 
 - `app/main.py` — FastAPI app, registers one router per resource.
-- `app/db.py` — engine/session (`sqlite:///./test.db`), `get_db` FastAPI dependency, `lifespan`
-  that calls `init_db()`.
+- `app/db.py` — engine/session (Postgres via `POSTGRESQL_DATABASE_URL`), `get_db` FastAPI
+  dependency, `lifespan` (disposes the engine on shutdown; schema creation is Alembic's job).
 - `app/models.py` — all SQLAlchemy ORM models and enums in one file.
+- `migrations/` — Alembic environment; `env.py` sources `sqlalchemy.url` from
+  `app.db.POSTGRESQL_DATABASE_URL` and `target_metadata` from `app.models.Base`, so both stay
+  in sync with the app automatically. Generated migrations live under `migrations/versions/`.
+- `scripts/seed_demo_data.py` — populates a freshly migrated database with demo data across
+  every table (`make seed`); not idempotent, pair with `make reset` to start over.
 - `app/routers/<resource>.py` — one router per resource, all following the same CRUD shape.
 - `app/schemas/<resource>.py` — Pydantic `*Create` / `*Update` / `*Read` models per resource.
 - `test/conftest.py` — top-level `db_session` fixture (raw SQLAlchemy session, FKs pragma on)

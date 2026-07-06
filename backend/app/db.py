@@ -17,13 +17,6 @@ engine = create_engine(POSTGRESQL_DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-
-def init_db() -> None:
-    from app import models
-
-    models.Base.metadata.create_all(bind=engine)
-
-
 # Fastapi dependency
 def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
@@ -35,7 +28,6 @@ def get_db() -> Generator[Session, None, None]:
 
 @asynccontextmanager
 async def lifespan(app):
-    init_db()
     # Return control to FastAPI to start the server
     yield
     # Add tear down code here if needed in the future

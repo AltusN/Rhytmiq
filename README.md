@@ -6,24 +6,45 @@ gymnasts, groups, meets, meet entries, routines, and routine profiles.
 ## Tech stack
 
 - [FastAPI](https://fastapi.tiangolo.com/) + [Pydantic v2](https://docs.pydantic.dev/) for the API layer
-- [SQLAlchemy 2.0](https://www.sqlalchemy.org/) ORM (SQLite for local dev, via `sqlite:///./test.db`)
+- [SQLAlchemy 2.0](https://www.sqlalchemy.org/) ORM + [Alembic](https://alembic.sqlalchemy.org/)
+  migrations, backed by a dockerized Postgres (via `psycopg` v3)
 - [pytest](https://docs.pytest.org/) for tests
 - [ruff](https://docs.astral.sh/ruff/) for linting/formatting, wired up via `pre-commit`
 
 ## Getting started
 
 ```bash
+cp .env.example .env   # edit values as needed
+docker compose up -d    # starts Postgres + pgAdmin
+
 cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
+alembic -c alembic.ini upgrade head
+
 uvicorn app.main:app --reload
 ```
 
 The API is served at `http://127.0.0.1:8000`. Interactive docs are available at
-`/docs` (Swagger UI) and `/redoc`. The SQLite schema is created automatically on
-startup (`app/db.py:init_db`) — no separate migration step is required for local dev.
+`/docs` (Swagger UI) and `/redoc`.
+
+The root `Makefile` wraps the common workflows: `make dev` (docker compose up + migrate),
+`make migration name="..."` (generate a migration), `make test` (migrate the test database +
+run pytest), `make seed` (populate demo data across every table), and `make reset` (wipe the
+local Postgres volume and start fresh).
+
+## Database migrations
+
+The schema is never auto-created on app startup — Alembic is the only way to build or update
+it. After changing a model in `app/models.py`, generate a migration with
+`make migration name="add some column"` (or `alembic revision --autogenerate -m "..."`
+directly), review the generated file, then apply it via `make dev` or `alembic upgrade head`.
+
+**Caveat:** adding a new value to an existing enum (e.g. a new `Level`) is not detected by
+autogenerate — Postgres enum types need a hand-written migration using
+`op.execute("ALTER TYPE ... ADD VALUE ...")`.
 
 ## Running tests
 
@@ -32,8 +53,9 @@ cd backend
 pytest
 ```
 
-Tests run against an isolated in-memory SQLite database per test (see
-`test/conftest.py`), so they don't touch the local `test.db` file.
+Tests run against an isolated in-memory SQLite database per test (see `test/conftest.py`) —
+they don't touch the Postgres database used by `uvicorn`/`make dev`. Moving the suite onto
+Postgres is tracked as follow-up work.
 
 ## Linting
 

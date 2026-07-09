@@ -61,22 +61,14 @@ def test_gymnast_first_name_too_short_raises_error(db_session):
         db_session.commit()
 
 
-# Enable this test when the date_of_birth constraint is enabled in the model
 def test_gymnast_date_of_birth_in_future_raises_error(db_session):
-    pytest.skip("Skipping test for future date_of_birth until constraint is enabled in the model.")
-
-
-# def test_gymnast_date_of_birth_in_future_raises_error(db_session):
-#     future_date = date.today().replace(year = date.today().year + 1)
-#     gymnast = Gymnast(
-#         first_name="Future",
-#         last_name="Gymnast",
-#         date_of_birth=future_date,
-#         country_code="USA"
-#     )
-#     db_session.add(gymnast)
-#     with pytest.raises(IntegrityError):
-#         db_session.commit()
+    future_date = date.today().replace(year=date.today().year + 1)
+    gymnast = Gymnast(
+        first_name="Future", last_name="Gymnast", date_of_birth=future_date, country_code="USA"
+    )
+    db_session.add(gymnast)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
 
 
 def test_gymnast_first_name_required(db_session):

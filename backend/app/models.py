@@ -221,8 +221,7 @@ class Gymnast(Base):
 
     __table_args__ = (
         CheckConstraint("length(first_name) > 2", name="ck_gymnast_first_name_nonempty"),
-        # enable for production, but disable for testing to allow creation of test gymnasts with future DOB
-        # CheckConstraint("date_of_birth <= current_date", name="ck_gymnast_date_of_birth_valid")
+        CheckConstraint("date_of_birth <= current_date", name="ck_gymnast_date_of_birth_valid"),
         UniqueConstraint("first_name", "last_name", "date_of_birth", name="uq_gymnast_identity"),
     )
 

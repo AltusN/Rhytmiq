@@ -11,10 +11,16 @@ Design notes:
   registered for this entry."
 - GET filters: ?entry_id= lets you list all routines for one entry.
 - PATCH: entry_id/apparatus are not updatable (locked in at creation, per
-  RoutineUpdate) — only order_of_performance changes, so no FK pre-check
-  needed.
+  RoutineUpdate) — only order_of_performance and penalty change, so no FK
+  pre-check needed.
 - DELETE: nothing references Routine as a parent, so no IntegrityError can
   occur — no try/except needed, matching meet_entry.py's delete.
+- GET /{routine_id}/score computes the routine's D/A/E/total live via
+  compute_routine_score (app/scoring.py), same "resolve live, don't
+  snapshot" philosophy as Routine.music_url. It's a separate endpoint
+  rather than fields embedded in RoutineRead: computing a trimmed mean over
+  every routine's judge_scores on every plain GET/list call would be
+  wasted cost for callers who only need schedule metadata.
 """
 
 from typing import Annotated
@@ -25,7 +31,8 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import MeetEntry, Routine
-from app.schemas.routine import RoutineCreate, RoutineRead, RoutineUpdate
+from app.schemas.routine import RoutineCreate, RoutineRead, RoutineScoreRead, RoutineUpdate
+from app.scoring import compute_routine_score
 
 router = APIRouter(prefix="/routines", tags=["routines"])
 
@@ -78,6 +85,25 @@ def get_routine(routine_id: int, db: Annotated[Session, Depends(get_db)]) -> Rou
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Routine with id {routine_id} not found"
         )
     return routine
+
+
+@router.get("/{routine_id}/score", response_model=RoutineScoreRead)
+def get_routine_score(routine_id: int, db: Annotated[Session, Depends(get_db)]) -> RoutineScoreRead:
+    routine = db.get(Routine, routine_id)
+    if routine is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Routine with id {routine_id} not found"
+        )
+
+    result = compute_routine_score(routine)
+    return RoutineScoreRead(
+        routine_id=routine.id,
+        d_score=result.d_score,
+        a_score=result.a_score,
+        e_score=result.e_score,
+        penalty=result.penalty,
+        total=result.total,
+    )
 
 
 ##-- Patch --##

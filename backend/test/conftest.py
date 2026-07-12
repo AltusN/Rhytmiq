@@ -9,6 +9,7 @@ Top-level pytest fixtures and factory helpers shared by test_models/ and test_sc
 
 import os
 from datetime import date
+from decimal import Decimal
 from itertools import count
 from pathlib import Path
 
@@ -34,6 +35,8 @@ from app.models import (
     MeetEntry,
     MeetStatus,
     Panel,
+    PenaltyJudgeRole,
+    PenaltyRecord,
     Routine,
     RoutineProfile,
 )
@@ -285,3 +288,27 @@ def make_judge_score(
     db_session.add(judge_score)
     db_session.flush()  # Get judge_score.id populated
     return judge_score
+
+
+def make_penalty_record(
+    db_session,
+    routine=None,
+    judge=None,
+    judge_role=PenaltyJudgeRole.responsible_judge,
+    description="test penalty",
+    amount=Decimal("0.30"),
+) -> PenaltyRecord:
+    if routine is None:
+        routine = make_routine(db_session)
+    if judge is None:
+        judge = make_judge(db_session)
+    penalty_record = PenaltyRecord(
+        routine_id=routine.id,
+        judge_id=judge.id,
+        judge_role=judge_role,
+        description=description,
+        amount=amount,
+    )
+    db_session.add(penalty_record)
+    db_session.flush()  # Get penalty_record.id populated
+    return penalty_record

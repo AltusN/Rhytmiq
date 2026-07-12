@@ -161,3 +161,13 @@ def test_different_gymnast_can_enter_the_same_meet(db_session):
 
     fetched_entries = db_session.query(MeetEntry).filter_by(meet_id=meet.id).all()
     assert len(fetched_entries) == 2
+
+
+def test_level_no_longer_has_retired_elite_members():
+    # elite_1/elite_2/junior_elite were retired in favor of the full level_1-10 /
+    # high_performance_1-4 / pre_junior / junior / senior / olympic taxonomy -- guard
+    # against an accidental future re-add.
+    assert "elite_1" not in Level.__members__
+    assert "elite_2" not in Level.__members__
+    assert "junior_elite" not in Level.__members__
+    assert len(Level.__members__) == 18

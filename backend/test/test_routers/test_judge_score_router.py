@@ -27,7 +27,7 @@ Test suite for the judge score router.
 
 from decimal import Decimal
 
-from app.models import Apparatus, Panel
+from app.models import Apparatus, Level, Panel
 from test.conftest import (
     make_club,
     make_district,
@@ -45,12 +45,17 @@ def _make_judge_routine(db_session):
     meet_entry so callers can build a second routine for the same gymnast on a
     different apparatus (rather than getting a brand-new gymnast from make_routine's
     auto-build path). Returns a (routine, judge, meet_entry) tuple.
+
+    Uses Level.senior (rather than make_meet_entry's level_3 default, which is
+    Execution-only under the level-gated D/A rule) so these tests keep exercising
+    panel/value semantics across all four panels -- level-gating itself is tested
+    separately below.
     """
     district = make_district(db_session)
     club = make_club(db_session, district=district)
     gymnast = make_gymnast(db_session, club=club)
     meet = make_meet(db_session, district=district)
-    meet_entry = make_meet_entry(db_session, meet=meet, gymnast=gymnast)
+    meet_entry = make_meet_entry(db_session, meet=meet, gymnast=gymnast, level=Level.senior)
     routine = make_routine(db_session, meet_entry=meet_entry)
     judge = make_judge(db_session)
 
@@ -194,6 +199,64 @@ def test_create_judge_score_artistry_gt_10(client, db_session):
     }
     response = client.post("/judge-scores/", json=payload)
     assert response.status_code == 422  # Unprocessable Entity
+
+
+def _make_level_1_routine(db_session):
+    district = make_district(db_session)
+    club = make_club(db_session, district=district)
+    gymnast = make_gymnast(db_session, club=club)
+    meet = make_meet(db_session, district=district)
+    meet_entry = make_meet_entry(db_session, meet=meet, gymnast=gymnast, level=Level.level_1)
+    return make_routine(db_session, meet_entry=meet_entry)
+
+
+def test_create_judge_score_difficulty_rejected_for_e_only_level(client, db_session):
+    # level_1 routines are scored on execution only -- a difficulty_body mark is
+    # invalid for the routine's level, not just a data conflict, hence 422.
+    routine = _make_level_1_routine(db_session)
+    judge = make_judge(db_session)
+
+    payload = {
+        "routine_id": routine.id,
+        "judge_id": judge.id,
+        "panel": Panel.difficulty_body,
+        "value": 3.30,
+    }
+    response = client.post("/judge-scores/", json=payload)
+    assert response.status_code == 422
+    data = response.json()
+    assert "execution only" in data["detail"]
+
+
+def test_create_judge_score_artistry_rejected_for_e_only_level(client, db_session):
+    routine = _make_level_1_routine(db_session)
+    judge = make_judge(db_session)
+
+    payload = {
+        "routine_id": routine.id,
+        "judge_id": judge.id,
+        "panel": Panel.artistry,
+        "value": 9.0,
+    }
+    response = client.post("/judge-scores/", json=payload)
+    assert response.status_code == 422
+    data = response.json()
+    assert "execution only" in data["detail"]
+
+
+def test_create_judge_score_execution_allowed_for_e_only_level(client, db_session):
+    # The one panel that IS valid for an E-only level should not be blocked by the gate.
+    routine = _make_level_1_routine(db_session)
+    judge = make_judge(db_session)
+
+    payload = {
+        "routine_id": routine.id,
+        "judge_id": judge.id,
+        "panel": Panel.execution,
+        "value": 8.5,
+    }
+    response = client.post("/judge-scores/", json=payload)
+    assert response.status_code == 201
 
 
 def test_get_empty_judge_scores(client):

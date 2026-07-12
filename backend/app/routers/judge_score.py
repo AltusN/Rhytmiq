@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models import Judge, JudgeScore, Panel, Routine
 from app.schemas.judge_score import JudgeScoreCreate, JudgeScoreRead, JudgeScoreUpdate
+from app.scoring import is_panel_valid_for_level
 
 router = APIRouter(prefix="/judge-scores", tags=["Judge Scores"])
 
@@ -16,12 +17,31 @@ router = APIRouter(prefix="/judge-scores", tags=["Judge Scores"])
 def create_judge_score(payload: JudgeScoreCreate, db: Annotated[Session, Depends(get_db)]):
     """
     Create a new judge score.
+
+    Design notes:
+    - Levels 1-7 are Execution-only (see app.scoring.E_ONLY_LEVELS) -- a difficulty_body/
+      difficulty_apparatus/artistry mark against a routine at one of those levels is
+      rejected with a 422, since the payload is invalid for that routine's level, not
+      merely in conflict with existing data.
+    - Known limitation: this level/panel gate only runs at this HTTP API boundary, since
+      it needs a cross-table join (routine -> entry -> level) that a Postgres CHECK
+      constraint can't express. Direct ORM writes (test factories, future seed/admin
+      scripts) bypass it entirely, unlike ck_judge_score_panel_value_cap which is a real
+      DB constraint enforced everywhere.
     """
     routine = db.get(Routine, payload.routine_id)
     if routine is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Routine with id {payload.routine_id} not found",
+        )
+    if not is_panel_valid_for_level(routine.entry.level, payload.panel):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Routine {payload.routine_id} is level {routine.entry.level.value}, "
+                f"which is scored on execution only -- {payload.panel.value} is not valid."
+            ),
         )
     judge = db.get(Judge, payload.judge_id)
     if judge is None:

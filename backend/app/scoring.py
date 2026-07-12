@@ -1,9 +1,31 @@
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
-from app.models import Panel
+from app.models import Level, Panel
 
 TRIM_THRESHOLD = 4  # Minimum number of scores required to calculate trimmed mean
+
+# Levels 1-7 are scored on Execution only -- no Difficulty (D) or Artistry (A) panels
+# are judged at these levels. level_8 and above (level_8-10, high_performance_1-4,
+# pre_junior, junior, senior, olympic) receive the full D+A+E panel.
+E_ONLY_LEVELS = frozenset(
+    {
+        Level.level_1,
+        Level.level_2,
+        Level.level_3,
+        Level.level_4,
+        Level.level_5,
+        Level.level_6,
+        Level.level_7,
+    }
+)
+
+
+def is_panel_valid_for_level(level: Level, panel: Panel) -> bool:
+    """Whether a judge score on `panel` is valid for a routine at `level`."""
+    if level in E_ONLY_LEVELS:
+        return panel == Panel.execution
+    return True
 
 
 def trimmed_mean(scores: list[Decimal]) -> Decimal:

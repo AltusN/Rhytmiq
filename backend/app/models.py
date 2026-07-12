@@ -52,11 +52,19 @@ class Level(StrEnum):
     level_3 = "level_3"
     level_4 = "level_4"
     level_5 = "level_5"
-    elite_1 = "elite_1"
-    elite_2 = "elite_2"
-    junior_elite = "junior_elite"
+    level_6 = "level_6"
+    level_7 = "level_7"
+    level_8 = "level_8"
+    level_9 = "level_9"
+    level_10 = "level_10"
+    high_performance_1 = "high_performance_1"
+    high_performance_2 = "high_performance_2"
+    high_performance_3 = "high_performance_3"
+    high_performance_4 = "high_performance_4"
+    pre_junior = "pre_junior"
     junior = "junior"
     senior = "senior"
+    olympic = "olympic"
 
 
 class Panel(StrEnum):

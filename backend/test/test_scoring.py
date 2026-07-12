@@ -13,8 +13,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.models import Panel
-from app.scoring import RoutineScoreResult, compute_routine_score, trimmed_mean
+from app.models import Level, Panel
+from app.scoring import (
+    RoutineScoreResult,
+    compute_routine_score,
+    is_panel_valid_for_level,
+    trimmed_mean,
+)
 
 
 @pytest.mark.parametrize(
@@ -170,3 +175,17 @@ def test_compute_routine_score_d_score_is_not_capped_at_10():
     result = compute_routine_score(routine)
 
     assert result.d_score == Decimal("18.20")
+
+
+@pytest.mark.parametrize("level", [Level.level_1, Level.level_7])
+@pytest.mark.parametrize("panel", list(Panel))
+def test_is_panel_valid_for_level_e_only_levels(level, panel):
+    assert is_panel_valid_for_level(level, panel) == (panel == Panel.execution)
+
+
+@pytest.mark.parametrize(
+    "level", [Level.level_8, Level.high_performance_1, Level.senior, Level.olympic]
+)
+@pytest.mark.parametrize("panel", list(Panel))
+def test_is_panel_valid_for_level_non_gated_levels(level, panel):
+    assert is_panel_valid_for_level(level, panel) is True

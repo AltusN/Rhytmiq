@@ -5,11 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 Rhytmiq: a FIG-compliant API for managing rhythmic gymnastics meets — districts, clubs,
-coaches, gymnasts, groups, meets, meet entries, routines, routine profiles, judges, and
-judge scores. FastAPI + Pydantic v2 + SQLAlchemy 2.0 + Alembic, backed by a dockerized
-Postgres. All code lives under `backend/`. The test suite runs against that same
-dockerized Postgres, with each test isolated via a rolled-back transaction (see
-`test/conftest.py`).
+coaches, gymnasts, groups, meets, meet entries, routines, routine profiles, judges, judge
+scores, and itemized penalty records. FastAPI + Pydantic v2 + SQLAlchemy 2.0 + Alembic,
+backed by a dockerized Postgres. All code lives under `backend/`. The test suite runs
+against that same dockerized Postgres, with each test isolated via a rolled-back
+transaction (see `test/conftest.py`).
 
 ## Commands
 
@@ -102,5 +102,14 @@ Every resource router follows: `POST /`, `GET /`, `GET /{id}`, `PATCH /{id}`, `D
   `Meet` deletes also cascade, but are rejected (409) while `in_progress` or `completed` —
   a completed meet is the historical record of who competed, so it can't be silently wiped.
   `Club`/`Group`/`District` deletes are rejected (409) via `RESTRICT` FKs when dependents exist.
-- Every resource listed above (`District` through `JudgeScore`) now has a full
-  model/schema/router. `Judge` and `JudgeScore` were the last two to get routers.
+- `Routine.penalty` is a directly-settable aggregate for the common case (most routines
+  have at most one penalty), but once a routine has any itemized `PenaltyRecord`s
+  (`routers/penalty_record.py`), direct `PATCH` of `penalty` is rejected (409) — it can
+  only change via the itemized records from then on. Every `PenaltyRecord`
+  POST/PATCH/DELETE re-syncs `Routine.penalty` to the sum of that routine's records
+  (`_resync_routine_penalty`), so the aggregate and the itemized total can never drift
+  apart. The first record added to a routine with a manually-set `penalty` overwrites
+  it, rather than merging — itemization takes over, it doesn't add to what was there.
+- Every resource listed above (`District` through `PenaltyRecord`) now has a full
+  model/schema/router. `Judge`, `JudgeScore`, and `PenaltyRecord` were the last three to
+  get routers.

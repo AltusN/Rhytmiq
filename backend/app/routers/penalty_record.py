@@ -18,6 +18,7 @@ Design notes:
   with whatever aggregate figure was there before. See routine.py's PATCH guard, which
   rejects direct penalty edits once a routine has any PenaltyRecords, keeping the two
   entry paths from fighting each other.
+  Completed meets also reject any new PenaltyRecords, so the aggregate is frozen once the meet is done.
 """
 
 from decimal import Decimal
@@ -30,6 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Judge, PenaltyJudgeRole, PenaltyRecord, Routine
+from app.routers._guards import ensure_meet_not_completed
 from app.schemas.penalty_record import (
     PenaltyRecordCreate,
     PenaltyRecordRead,
@@ -62,6 +64,9 @@ def create_penalty_record(payload: PenaltyRecordCreate, db: Annotated[Session, D
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Routine with id {payload.routine_id} not found",
         )
+
+    ensure_meet_not_completed(routine.entry.meet)
+
     judge = db.get(Judge, payload.judge_id)
     if judge is None:
         raise HTTPException(
@@ -130,6 +135,8 @@ def update_penalty_record(
             detail=f"Penalty record with id {penalty_record_id} not found",
         )
 
+    ensure_meet_not_completed(penalty_record.routine.entry.meet)
+
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(penalty_record, key, value)
 
@@ -159,6 +166,7 @@ def delete_penalty_record(penalty_record_id: int, db: Annotated[Session, Depends
         )
 
     routine = penalty_record.routine
+    ensure_meet_not_completed(routine.entry.meet)
     db.delete(penalty_record)
     db.flush()
     _resync_routine_penalty(db, routine)

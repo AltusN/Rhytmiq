@@ -8,6 +8,7 @@ Test suite for the judge score router.
 -- Test creating a judge score with same routine_id/judge_id but a different panel (allowed)
 -- Test creating a judge score with difficulty > 10
 -- Test creating a judge score with execution > 10
+-- Test creating a judge score after meet completion (should be rejected)
 - Get /judge_scores
 -- Test listing all judge scores
 -- Test filtering judge scores by routine_id
@@ -20,14 +21,16 @@ Test suite for the judge score router.
 -- Test updating a judge score with valid data
 -- Test updating a judge score with invalid data
 -- Test updating a judge score with invalid ID
+-- Test updating a judge score after meet completion (should be rejected)
 -Delete /judge_scores/{judge_score_id}
 -- Test deleting a judge score by ID
 -- Test deleting a judge score with invalid ID
+-- Test deleting a judge score after meet completion (should be rejected)
 """
 
 from decimal import Decimal
 
-from app.models import Apparatus, Level, Panel
+from app.models import Apparatus, Level, MeetStatus, Panel
 from test.conftest import (
     make_club,
     make_district,
@@ -259,6 +262,24 @@ def test_create_judge_score_execution_allowed_for_e_only_level(client, db_sessio
     assert response.status_code == 201
 
 
+def test_create_judge_score_after_meet_completion_rejected(client, db_session):
+    # Test creating a judge score after the meet has been marked as completed
+    routine, judge, _ = _make_judge_routine(db_session)
+    routine.entry.meet.status = MeetStatus.completed  # Mark the meet as completed
+    db_session.commit()
+
+    payload = {
+        "routine_id": routine.id,
+        "judge_id": judge.id,
+        "panel": Panel.execution,
+        "value": 8.5,
+    }
+    response = client.post("/judge-scores/", json=payload)
+    assert response.status_code == 409  # Conflict
+    data = response.json()
+    assert f"Meet {routine.entry.meet.id} is completed" in data["detail"]
+
+
 def test_get_empty_judge_scores(client):
     # Test listing judge scores when none exist
     response = client.get("/judge-scores/")
@@ -449,6 +470,32 @@ def test_update_judge_score_invalid_id(client):
     assert "not found" in data["detail"]
 
 
+def test_update_judge_score_after_meet_completion_rejected(client, db_session):
+    # Test updating a judge score after the meet has been marked as completed
+    routine, judge, _ = _make_judge_routine(db_session)
+    db_session.commit()  # Commit to ensure IDs are generated
+
+    payload = {
+        "routine_id": routine.id,
+        "judge_id": judge.id,
+        "panel": Panel.execution,
+        "value": 8.5,
+    }
+    response_create = client.post("/judge-scores/", json=payload)
+    assert response_create.status_code == 201
+    judge_score_id = response_create.json()["id"]
+
+    # Mark the meet as completed
+    routine.entry.meet.status = MeetStatus.completed
+    db_session.commit()
+
+    # Attempt to update the judge score after meet completion
+    response_update = client.patch(f"/judge-scores/{judge_score_id}", json={"value": 9.0})
+    assert response_update.status_code == 409  # Conflict
+    data = response_update.json()
+    assert f"Meet {routine.entry.meet.id} is completed" in data["detail"]
+
+
 ##-- Delete --##
 def test_delete_judge_score(client, db_session):
     # Test deleting a judge score by ID
@@ -484,3 +531,29 @@ def test_delete_judge_score_invalid_id(client):
     assert response.status_code == 404
     data = response.json()
     assert "not found" in data["detail"]
+
+
+def test_delete_judge_score_after_meet_completion_rejected(client, db_session):
+    # Test deleting a judge score after the meet has been marked as completed
+    routine, judge, _ = _make_judge_routine(db_session)
+    db_session.commit()  # Commit to ensure IDs are generated
+
+    payload = {
+        "routine_id": routine.id,
+        "judge_id": judge.id,
+        "panel": Panel.execution,
+        "value": 8.5,
+    }
+    response_create = client.post("/judge-scores/", json=payload)
+    assert response_create.status_code == 201
+    judge_score_id = response_create.json()["id"]
+
+    # Mark the meet as completed
+    routine.entry.meet.status = MeetStatus.completed
+    db_session.commit()
+
+    # Attempt to delete the judge score after meet completion
+    response_delete = client.delete(f"/judge-scores/{judge_score_id}")
+    assert response_delete.status_code == 409  # Conflict
+    data = response_delete.json()
+    assert f"Meet {routine.entry.meet.id} is completed" in data["detail"]

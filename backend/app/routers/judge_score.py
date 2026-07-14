@@ -1,3 +1,10 @@
+"""
+JudgeScore router — CRUD for /judge-scores.
+
+Design notes:
+- Completed meets also reject any new JudgeScores, so the aggregate is frozen once the meet is done.
+"""
+
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -6,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Judge, JudgeScore, Panel, Routine
+from app.routers._guards import ensure_meet_not_completed
 from app.schemas.judge_score import JudgeScoreCreate, JudgeScoreRead, JudgeScoreUpdate
 from app.scoring import is_panel_valid_for_level
 
@@ -35,6 +43,9 @@ def create_judge_score(payload: JudgeScoreCreate, db: Annotated[Session, Depends
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Routine with id {payload.routine_id} not found",
         )
+
+    ensure_meet_not_completed(routine.entry.meet)
+
     if not is_panel_valid_for_level(routine.entry.level, payload.panel):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -111,6 +122,8 @@ def update_judge_score(
             detail=f"Judge score with id {judge_score_id} not found",
         )
 
+    ensure_meet_not_completed(judge_score.routine.entry.meet)
+
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(judge_score, key, value)
 
@@ -140,6 +153,8 @@ def delete_judge_score(judge_score_id: int, db: Annotated[Session, Depends(get_d
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Judge score with id {judge_score_id} not found",
         )
+
+    ensure_meet_not_completed(judge_score.routine.entry.meet)
 
     db.delete(judge_score)
     db.commit()

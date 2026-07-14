@@ -6,6 +6,7 @@ Test suite for the penalty record router.
 -- Test creating a penalty record with invalid judge_id
 -- Test creating a penalty record with same routine_id/judge_id/judge_role recurring
    (allowed -- no uniqueness constraint, unlike JudgeScore)
+-- Test reject adding a PenaltyRecord to a completed meet (409)
 - Get /penalty-records
 -- Test listing all penalty records
 -- Test filtering penalty records by routine_id
@@ -17,7 +18,9 @@ Test suite for the penalty record router.
 - Patch /penalty-records/{penalty_record_id}
 -- Test updating a penalty record with valid data
 -- Test updating a penalty record with invalid ID
--Delete /penalty-records/{penalty_record_id}
+-- Test updating a penalty record on a completed meet (409)
+- Delete /penalty-records/{penalty_record_id}
+-- Test deleting a penalty record on a completed meet (409)
 -- Test deleting a penalty record by ID
 -- Test deleting a penalty record with invalid ID
 - Drift guard between Routine.penalty and its PenaltyRecords
@@ -29,7 +32,7 @@ Test suite for the penalty record router.
 
 from decimal import Decimal
 
-from app.models import Apparatus, PenaltyJudgeRole
+from app.models import Apparatus, MeetStatus, PenaltyJudgeRole
 from test.conftest import (
     make_club,
     make_district,
@@ -130,6 +133,24 @@ def test_create_penalty_record_same_routine_judge_role_recurs_allowed(client, db
     payload["description"] = "second boundary touch"
     response2 = client.post("/penalty-records/", json=payload)
     assert response2.status_code == 201
+
+
+def test_create_penalty_record_rejected_on_completed_meet(client, db_session):
+    routine, judge, _ = _make_judge_routine(db_session)
+    routine.entry.meet.status = MeetStatus.completed
+    db_session.commit()
+
+    payload = {
+        "routine_id": routine.id,
+        "judge_id": judge.id,
+        "judge_role": PenaltyJudgeRole.line_judge,
+        "description": "boundary touch",
+        "amount": 0.30,
+    }
+    response = client.post("/penalty-records/", json=payload)
+    assert response.status_code == 409
+    data = response.json()
+    assert f"Meet {routine.entry.meet.id} is completed" in data["detail"]
 
 
 ##-- Get --##
@@ -284,6 +305,33 @@ def test_update_penalty_record_invalid_id(client):
     assert "not found" in response.json()["detail"]
 
 
+def test_update_penalty_record_rejected_on_completed_meet(client, db_session):
+    routine, judge, _ = _make_judge_routine(db_session)
+    db_session.commit()
+
+    payload = {
+        "routine_id": routine.id,
+        "judge_id": judge.id,
+        "judge_role": PenaltyJudgeRole.line_judge,
+        "description": "boundary touch",
+        "amount": 0.30,
+    }
+    # Create the record while the meet is still open -- the guard would reject
+    # this same POST once the meet is completed, so completion has to happen
+    # after setup, not before.
+    response_create = client.post("/penalty-records/", json=payload)
+    assert response_create.status_code == 201
+    penalty_record_id = response_create.json()["id"]
+
+    routine.entry.meet.status = MeetStatus.completed
+    db_session.commit()
+
+    response_update = client.patch(f"/penalty-records/{penalty_record_id}", json={"amount": 0.50})
+    assert response_update.status_code == 409
+    data = response_update.json()
+    assert f"Meet {routine.entry.meet.id} is completed" in data["detail"]
+
+
 ##-- Delete --##
 def test_delete_penalty_record(client, db_session):
     routine, judge, _ = _make_judge_routine(db_session)
@@ -427,3 +475,30 @@ def test_update_routine_penalty_directly_rejected_once_records_exist(client, db_
     # And the routine's penalty is unchanged by the rejected attempt.
     get_response = client.get(f"/routines/{routine.id}")
     assert Decimal(get_response.json()["penalty"]) == Decimal("0.30")
+
+
+def test_delete_penalty_record_rejected_on_completed_meet(client, db_session):
+    routine, judge, _ = _make_judge_routine(db_session)
+    db_session.commit()
+
+    payload = {
+        "routine_id": routine.id,
+        "judge_id": judge.id,
+        "judge_role": PenaltyJudgeRole.line_judge,
+        "description": "boundary touch",
+        "amount": 0.30,
+    }
+    # Create the record while the meet is still open -- the guard would reject
+    # this same POST once the meet is completed, so completion has to happen
+    # after setup, not before.
+    response_create = client.post("/penalty-records/", json=payload)
+    assert response_create.status_code == 201
+    penalty_record_id = response_create.json()["id"]
+
+    routine.entry.meet.status = MeetStatus.completed
+    db_session.commit()
+
+    response_delete = client.delete(f"/penalty-records/{penalty_record_id}")
+    assert response_delete.status_code == 409
+    data = response_delete.json()
+    assert f"Meet {routine.entry.meet.id} is completed" in data["detail"]

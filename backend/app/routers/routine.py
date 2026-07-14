@@ -25,6 +25,10 @@ Design notes:
   rather than fields embedded in RoutineRead: computing a trimmed mean over
   every routine's judge_scores on every plain GET/list call would be
   wasted cost for callers who only need schedule metadata.
+- POST/PATCH/DELETE all reject (409) once the routine's meet is completed
+  (app/routers/_guards.py) -- a completed meet is the historical record of
+  who competed, so its routines can't be created, edited, or deleted after
+  the fact. Same guard is shared by judge_score.py and penalty_record.py.
 """
 
 from typing import Annotated
@@ -35,6 +39,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import MeetEntry, Routine
+from app.routers._guards import ensure_meet_not_completed
 from app.schemas.routine import RoutineCreate, RoutineRead, RoutineScoreRead, RoutineUpdate
 from app.scoring import compute_routine_score
 
@@ -45,11 +50,14 @@ router = APIRouter(prefix="/routines", tags=["Routines"])
 @router.post("/", response_model=RoutineRead, status_code=status.HTTP_201_CREATED)
 def create_routine(payload: RoutineCreate, db: Annotated[Session, Depends(get_db)]):
     entry = db.get(MeetEntry, payload.entry_id)
+
     if entry is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Meet entry with id {payload.entry_id} not found",
         )
+
+    ensure_meet_not_completed(entry.meet)
 
     routine = Routine(**payload.model_dump())
     db.add(routine)
@@ -121,6 +129,8 @@ def update_routine(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Routine with id {routine_id} not found"
         )
 
+    ensure_meet_not_completed(routine.entry.meet)
+
     updates = payload.model_dump(exclude_unset=True)
     if "penalty" in updates and routine.penalty_records:
         raise HTTPException(
@@ -156,6 +166,8 @@ def delete_routine(routine_id: int, db: Annotated[Session, Depends(get_db)]) -> 
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Routine with id {routine_id} not found"
         )
+
+    ensure_meet_not_completed(routine.entry.meet)
 
     db.delete(routine)
     db.commit()

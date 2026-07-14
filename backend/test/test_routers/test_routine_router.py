@@ -13,11 +13,14 @@ Key differences from other routers:
   scoring logic itself is unit-tested in test_scoring.py, so these tests
   only need to prove the endpoint wires that logic up correctly (404s,
   no-marks-yet, and one realistic multi-panel case).
+- meets that have been completed cannot have new routines created or existing
+  routines updated (PATCH) or deleted (DELETE). This is enforced in the router,
+  not the model, so it needs to be tested here.
 """
 
 from decimal import Decimal
 
-from app.models import Apparatus, Panel
+from app.models import Apparatus, MeetStatus, Panel
 from test.conftest import (
     make_gymnast,
     make_judge,
@@ -96,7 +99,7 @@ def test_create_routine_negative_penalty_rejected(client, db_session):
     assert response.status_code == 422
 
 
-def test_create_routine_entry_not_found(client, db_session):
+def test_create_routine_entry_not_found(client):
     response = client.post(
         "/routines",
         json={"entry_id": 9999, "apparatus": "hoop"},
@@ -115,6 +118,20 @@ def test_create_routine_duplicate_apparatus_for_entry(client, db_session):
         json={"entry_id": entry.id, "apparatus": "ribbon"},
     )
     assert response.status_code == 409
+
+
+def test_create_routine_meet_completed_rejected(client, db_session):
+    meet = make_meet(db_session, status=MeetStatus.completed)
+    gymnast = make_gymnast(db_session)
+    entry = make_meet_entry(db_session, meet, gymnast=gymnast)
+    db_session.commit()
+
+    response = client.post(
+        "/routines",
+        json={"entry_id": entry.id, "apparatus": "hoop"},
+    )
+    assert response.status_code == 409
+    assert MeetStatus.completed.value in response.json()["detail"].lower()
 
 
 ##-- GET /routines and GET /routines/{id} --##
@@ -283,6 +300,18 @@ def test_update_routine_entry_id_field_is_ignored(client, db_session):
     assert body["order_of_performance"] == 2
 
 
+def test_update_routine_meet_completed_rejected(client, db_session):
+    meet = make_meet(db_session, status=MeetStatus.completed)
+    gymnast = make_gymnast(db_session)
+    entry = make_meet_entry(db_session, meet, gymnast=gymnast)
+    routine = make_routine(db_session, entry, apparatus=Apparatus.hoop)
+    db_session.commit()
+
+    response = client.patch(f"/routines/{routine.id}", json={"order_of_performance": 1})
+    assert response.status_code == 409
+    assert MeetStatus.completed.value in response.json()["detail"].lower()
+
+
 ##-- DELETE /routines/{id} --##
 def test_delete_routine_success(client, db_session):
     entry = _entry(db_session)
@@ -299,3 +328,15 @@ def test_delete_routine_success(client, db_session):
 def test_delete_routine_not_found(client):
     response = client.delete("/routines/9999")
     assert response.status_code == 404
+
+
+def test_delete_routine_meet_completed_rejected(client, db_session):
+    meet = make_meet(db_session, status=MeetStatus.completed)
+    gymnast = make_gymnast(db_session)
+    entry = make_meet_entry(db_session, meet, gymnast=gymnast)
+    routine = make_routine(db_session, entry, apparatus=Apparatus.hoop)
+    db_session.commit()
+
+    response = client.delete(f"/routines/{routine.id}")
+    assert response.status_code == 409
+    assert MeetStatus.completed.value in response.json()["detail"].lower()

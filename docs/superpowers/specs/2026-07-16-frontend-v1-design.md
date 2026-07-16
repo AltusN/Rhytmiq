@@ -1,4 +1,4 @@
-# Rhythmiq Frontend v1 — Meet-Day Scoring
+# Rhythmiq Frontend v1 — Meet-Day Scoring + Admin Console
 
 **Date:** 2026-07-16
 **Status:** Approved design, pending implementation plan
@@ -9,14 +9,17 @@ Rhythmiq's FastAPI backend is feature-complete for core meet management (12 CRUD
 resources + read-only results router), but the only UI is `/docs`. The long-term
 vision is a full product: admin console, meet-day scoring, public results, and
 eventually judges entering their own scores live from assigned stations (D1, E2, …)
-with view-all/edit-own permissions. This spec covers the **first slice: a meet-day
-scoring frontend** operated by a single trusted scorekeeper.
+with view-all/edit-own permissions. This spec covers v1 in two phases, both operated
+by a single trusted user: **Phase 1 — meet-day scoring** (a scorekeeper running a
+meet), **Phase 2 — admin console** (full reference-data management, replacing `/docs`
+for data entry).
 
 ## Decisions
 
 | Decision | Choice |
 |---|---|
-| First slice | Meet-day scoring (picker, entries, scoring, standings, status controls) |
+| V1 scope | Phase 1: meet-day scoring (picker, entries, scoring, standings, status controls). Phase 2: admin console over all reference resources + meet create/edit |
+| Build order | Scoring first — seed data covers reference data until Phase 2; admin reuses components the scoring screens create |
 | Stack | React 19 + Vite + TypeScript (strict), npm |
 | Libraries | TanStack Query, React Router, React Hook Form + Zod, Tailwind CSS, openapi-typescript + openapi-fetch |
 | Auth | None in v1 — single trusted scorekeeper, same trust model as the API today |
@@ -37,7 +40,7 @@ fetching is where SPAs rot).
 frontend/
   src/
     api/            # generated schema.d.ts + openapi-fetch client setup
-    features/       # one folder per screen: meets/, entries/, scoring/, standings/
+    features/       # one folder per screen: meets/, entries/, scoring/, standings/, admin/
     components/     # shared UI (layout shell, form fields, tables, toasts)
     lib/            # query client, computed-score helpers
   vite.config.ts    # dev proxy: /api/* -> http://127.0.0.1:8000 (prefix stripped)
@@ -58,13 +61,14 @@ frontend/
 
 ## Screens
 
-| Route | Screen |
-|---|---|
-| `/` | Meet list — pick a meet; status badge per meet |
-| `/meets/:meetId` | Meet shell — header (name, dates, status controls), tabs |
-| `/meets/:meetId/entries` | Entry list + create/delete entries |
-| `/meets/:meetId/scoring` | Quick-entry scoring (the core screen) |
-| `/meets/:meetId/standings` | Live standings |
+| Route | Screen | Phase |
+|---|---|---|
+| `/` | Meet list — pick a meet; status badge per meet | 1 |
+| `/meets/:meetId` | Meet shell — header (name, dates, status controls), tabs | 1 |
+| `/meets/:meetId/entries` | Entry list + create/delete entries | 1 |
+| `/meets/:meetId/scoring` | Quick-entry scoring (the core screen) | 1 |
+| `/meets/:meetId/standings` | Live standings | 1 |
+| `/admin/:resource` | Generic list + create/edit/delete per resource (see Admin console) | 2 |
 
 ### Quick-entry scoring (core screen)
 
@@ -115,6 +119,31 @@ The meet header offers only transitions valid from the current status (mirroring
 `ALLOWED_STATUS_TRANSITIONS` in `routers/meet.py` — e.g. draft shows Schedule/Cancel,
 never Complete), with a confirmation dialog on `completed` since that freezes scores.
 
+### Admin console (Phase 2)
+
+All resource routers share the same CRUD shape, so the admin console is built as one
+**generic layer** — a resource data-table (list + filters from the router's query
+params) and a form dialog (create/edit) — driven by a per-resource config object
+(columns, form fields, filters, immutable fields). Each resource is then declarative
+config plus its quirks:
+
+- **Resources:** districts, clubs, coaches, gymnasts, groups, judges, routine
+  profiles, and meets (create + edit of name/location/dates/district/medal minima —
+  status still changes only via the meet-shell controls). Group membership is managed
+  via the gymnast form's `group_id` field, not a separate screen.
+- **Navigation:** an Admin section in the app shell with a sidebar listing the
+  resources, ordered by dependency (district → club → coach/group/gymnast → judge →
+  routine profile → meet).
+- **API rules surfaced, not duplicated:** RESTRICT-delete rejections (409 with
+  dependents) and uniqueness violations show the API's `detail` as a toast/inline
+  error; abbreviation uppercasing is left to the server (the form shows the saved
+  value). RoutineProfile's create form enforces exactly-one-of gymnast/group and its
+  edit form only offers `music_url`/`choreography_notes`, mirroring the API's
+  updatable-field rules.
+- **FK pickers:** dropdowns/comboboxes populated from the parent resource's list
+  endpoint (e.g. club picker filtered by district), reusing the same pickers the
+  Phase 1 entry-create form builds.
+
 ## Save semantics & error handling
 
 - **Routine rows are created lazily by the scoring screen.** A `Routine` is one row
@@ -150,6 +179,9 @@ Priority order:
 3. Form validation — 0.05 snapping, caps, penalty rules.
 4. Screen flows — pick competitor → enter → save & next; standings polling render;
    status controls offering only legal transitions.
+5. Phase 2: the generic table/form layer gets thorough tests once (rendering from
+   config, create/edit/delete flows, 409 surfacing); per-resource tests then only
+   cover that resource's quirks (immutable fields, exactly-one-of, FK pickers).
 
 Playwright end-to-end tests deferred.
 
@@ -158,8 +190,6 @@ Playwright end-to-end tests deferred.
 - Auth, judge identities/logins, and judge self-scoring stations (view-all/edit-own) —
   requires backend auth + a server-side judge→station assignment model.
 - Itemized `PenaltyRecord` UI.
-- Admin console (districts/clubs/coaches/gymnasts/groups/judges CRUD) and meet
-  creation from the UI.
 - Public results pages, CSV export, team scores.
 - Production build/deployment and CORS configuration.
 - WebSockets — revisit only if sub-second synchronized score reveal is ever needed.

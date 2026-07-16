@@ -56,3 +56,6 @@ Desktop.ini
 .env.*
 !.env.example
 *.local
+
+# --- Brainstorm visual companion ---
+.superpowers/

@@ -32,7 +32,7 @@ export function CompetitorList({
   const visible = entries.filter(
     (e) =>
       needle === "" ||
-      e.bib_number.toLowerCase().includes(needle) ||
+      (e.bib_number ?? "").toLowerCase().includes(needle) ||
       nameFor(e).toLowerCase().includes(needle),
   );
 

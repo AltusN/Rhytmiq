@@ -44,4 +44,20 @@ describe("CompetitorList", () => {
     await userEvent.click(screen.getByRole("button", { name: /11 · Kea Botha/ }));
     expect(onSelect).toHaveBeenCalledWith(entries[0]);
   });
+
+  test("handles null bib_number without crashing", () => {
+    const entriesWithNull = [
+      makeEntry({ id: 1, bib_number: "11" }),
+      makeEntry({ id: 3, bib_number: null as never }),
+    ];
+    const props = {
+      ...baseProps,
+      entries: entriesWithNull,
+      nameFor: (e: (typeof entriesWithNull)[number]) =>
+        e.id === 1 ? "Kea Botha" : "Jon Doe",
+    };
+    render(<CompetitorList {...props} search="doe" />);
+    expect(screen.getByText(/Jon Doe/)).toBeInTheDocument();
+    expect(screen.queryByText(/Kea Botha/)).toBeNull();
+  });
 });

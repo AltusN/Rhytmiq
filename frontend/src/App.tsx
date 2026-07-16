@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
+import { EntriesPage } from "./features/entries/EntriesPage";
 import { MeetListPage } from "./features/meets/MeetListPage";
 import { MeetShell } from "./features/meets/MeetShell";
 
@@ -11,7 +12,7 @@ export default function App() {
         <Route path="/meets/:meetId" element={<MeetShell />}>
           <Route index element={<Navigate to="scoring" replace />} />
           <Route path="scoring" element={<div>Scoring coming soon</div>} />
-          <Route path="entries" element={<div>Entries coming soon</div>} />
+          <Route path="entries" element={<EntriesPage />} />
           <Route path="standings" element={<div>Standings coming soon</div>} />
         </Route>
       </Route>

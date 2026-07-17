@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toNum } from "../../api/client";
 import type {
@@ -110,6 +110,20 @@ export function ScoreForm({
     useForm<FormValues>({ defaultValues });
   const [saving, setSaving] = useState(false);
 
+  const [justSaved, setJustSaved] = useState(false);
+  useEffect(() => {
+    if (!justSaved) return;
+    const timer = setTimeout(() => setJustSaved(false), 2000);
+    return () => clearTimeout(timer);
+  }, [justSaved]);
+  useEffect(() => {
+    // only user edits clear the indicator ("change"); programmatic resets don't
+    const sub = watch((_, { type }) => {
+      if (type === "change") setJustSaved(false);
+    });
+    return () => sub.unsubscribe();
+  }, [watch]);
+
   const watched = watch();
   const preview = computePreview({
     dBody: eOnly ? undefined : parseBox(watched.dBody),
@@ -142,16 +156,16 @@ export function ScoreForm({
           penalty: penaltyLocked ? undefined : (parseBox(values.penalty) ?? 0),
           currentPenalty: routine ? toNum(routine.penalty) : 0,
         });
+        const clean =
+          !result.formError && Object.keys(result.boxErrors).length === 0;
+        setJustSaved(clean);
         if (result.formError) {
           setError("root.server", { type: "server", message: result.formError });
         }
         for (const [key, message] of Object.entries(result.boxErrors)) {
           setError(key as BoxKey | "penalty", { type: "server", message });
         }
-        onSaved(
-          result,
-          next && !result.formError && Object.keys(result.boxErrors).length === 0,
-        );
+        onSaved(result, next && clean);
       } finally {
         setSaving(false);
       }
@@ -231,6 +245,9 @@ export function ScoreForm({
           >
             Save
           </button>
+          {justSaved && (
+            <span className="text-sm font-semibold text-green-700">Saved ✓</span>
+          )}
         </div>
       )}
     </form>

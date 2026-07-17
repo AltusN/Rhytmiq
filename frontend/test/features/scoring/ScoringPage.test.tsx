@@ -169,6 +169,39 @@ test("unassigned slots render disabled boxes", async () => {
   expect(screen.getByLabelText("Artistry")).toBeDisabled();
 });
 
+test("a clean save shows the Saved ✓ indicator; the next edit clears it", async () => {
+  mockBase();
+  server.use(
+    http.post(api("/routines/"), () =>
+      HttpResponse.json(makeRoutine({ id: 77, entry_id: 21 }), { status: 201 }),
+    ),
+    http.post(api("/judge-scores/"), () => HttpResponse.json({}, { status: 201 })),
+  );
+  renderApp("/meets/5/scoring");
+  await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
+  await userEvent.type(await screen.findByLabelText("E1"), "8.25");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("Saved ✓")).toBeInTheDocument();
+
+  await userEvent.type(screen.getByLabelText("E1"), "5");
+  expect(screen.queryByText("Saved ✓")).toBeNull();
+});
+
+test("a save that returns a box error shows no Saved ✓", async () => {
+  mockBase({ routines: [makeRoutine({ id: 77, entry_id: 21 })] });
+  server.use(
+    http.post(api("/judge-scores/"), () =>
+      HttpResponse.json({ detail: "boom" }, { status: 409 }),
+    ),
+  );
+  renderApp("/meets/5/scoring");
+  await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
+  await userEvent.type(await screen.findByLabelText("E1"), "8.25");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("boom")).toBeInTheDocument();
+  expect(screen.queryByText("Saved ✓")).toBeNull();
+});
+
 test("penalty box locks when itemized penalty records exist", async () => {
   const routine = makeRoutine({ id: 77, entry_id: 21, penalty: "0.30" });
   mockBase({

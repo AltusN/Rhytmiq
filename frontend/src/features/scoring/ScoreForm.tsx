@@ -90,14 +90,17 @@ export function ScoreForm({
   const defaultValues = useMemo<FormValues>(() => {
     const values = {
       dBody: "", dApp: "", a: "", e1: "", e2: "", e3: "", e4: "",
-      penalty: routine ? String(toNum(routine.penalty) || "") : "",
+      penalty:
+        routine && toNum(routine.penalty) !== 0
+          ? toNum(routine.penalty).toFixed(2)
+          : "",
     } as FormValues;
     for (const box of boxes) {
       if (box.judgeId === undefined) continue;
       const existing = existingScores.find(
         (s) => s.judge_id === box.judgeId && s.panel === box.panel,
       );
-      if (existing) values[box.key] = String(toNum(existing.value));
+      if (existing) values[box.key] = toNum(existing.value).toFixed(2);
     }
     return values;
     // eslint-disable-next-line react-hooks/exhaustive-deps

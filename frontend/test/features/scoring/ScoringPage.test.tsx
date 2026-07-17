@@ -149,6 +149,18 @@ test("unparseable input never renders NaN in the preview", async () => {
   expect(screen.queryByText(/NaN/)).toBeNull();
 });
 
+test("loaded scores and penalty render with two decimals", async () => {
+  const routine = makeRoutine({ id: 77, entry_id: 21, penalty: "0.30" });
+  mockBase({
+    routines: [routine],
+    scores: [makeScore({ routine_id: 77, judge_id: 2, panel: "execution", value: "8.40" })],
+  });
+  renderApp("/meets/5/scoring");
+  await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
+  expect(await screen.findByLabelText("E1")).toHaveValue("8.40");
+  expect(screen.getByLabelText("Penalty")).toHaveValue("0.30");
+});
+
 test("unassigned slots render disabled boxes", async () => {
   mockBase();
   renderApp("/meets/5/scoring");

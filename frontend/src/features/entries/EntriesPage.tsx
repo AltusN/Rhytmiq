@@ -90,7 +90,7 @@ export function EntriesPage() {
                 {!locked && (
                   <button
                     onClick={() => {
-                      if (window.confirm(`Delete entry (bib ${entry.bib_number})? Its routines and scores go with it.`)) {
+                      if (window.confirm(`Delete entry (${entry.bib_number ? `bib ${entry.bib_number}` : nameFor(entry)})? Its routines and scores go with it.`)) {
                         deleteMutation.mutate(entry.id);
                       }
                     }}

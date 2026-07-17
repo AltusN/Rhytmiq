@@ -6,11 +6,23 @@ and itemized penalty records.
 
 ## Tech stack
 
+Backend:
+
 - [FastAPI](https://fastapi.tiangolo.com/) + [Pydantic v2](https://docs.pydantic.dev/) for the API layer
 - [SQLAlchemy 2.0](https://www.sqlalchemy.org/) ORM + [Alembic](https://alembic.sqlalchemy.org/)
   migrations, backed by a dockerized Postgres (via `psycopg` v3)
 - [pytest](https://docs.pytest.org/) for tests
 - [ruff](https://docs.astral.sh/ruff/) for linting/formatting, wired up via `pre-commit`
+
+Frontend (`frontend/`):
+
+- [React 19](https://react.dev/) + [Vite](https://vite.dev/) + TypeScript (strict), styled with
+  [Tailwind CSS](https://tailwindcss.com/)
+- [TanStack Query](https://tanstack.com/query) for server state (live standings poll every 5s);
+  [React Hook Form](https://react-hook-form.com/) + [Zod](https://zod.dev/) for forms
+- [openapi-typescript](https://openapi-ts.dev/) + `openapi-fetch` — the API client's types are
+  generated from the backend's OpenAPI schema, so the frontend/backend contract is compiler-checked
+- [Vitest](https://vitest.dev/) + Testing Library + [MSW](https://mswjs.io/) for tests
 
 ## Getting started
 
@@ -34,12 +46,25 @@ The API is served at `http://127.0.0.1:8000`. Interactive docs are available at
 The root `Makefile` wraps the common workflows: `make dev` (docker compose up + migrate),
 `make migration name="..."` (generate a migration), `make test` (migrate the test database +
 run pytest), `make seed` (populate demo data across every table), `make reset` (wipe the
-local Postgres volume and start fresh), and `make frontend` (start the Vite dev server).
+local Postgres volume and start fresh), `make types` (regenerate the frontend's API types
+from the OpenAPI schema), and `make frontend` (start the Vite dev server).
 
 ## Frontend
 
-`frontend/` is a React + Vite single-page app for meet-day scoring (Phase 1), talking to
-the API above through a dev-server proxy — no CORS setup needed.
+`frontend/` is a React + Vite single-page app for **meet-day scoring** (Phase 1 of the
+frontend design — see `docs/superpowers/specs/`), operated by a single scorekeeper:
+
+- **Meet list & shell** — pick a meet; change its status via forward-only controls
+  (draft → scheduled → in progress → completed, cancel from anywhere).
+- **Entries** — list, create, and delete meet entries (read-only once the meet is
+  completed or cancelled).
+- **Quick-entry scoring** — the core screen: a filtered competitor list, one row of score
+  boxes (`D-Body · D-App · Artistry | E1–E4 · Penalty`, execution-only for levels 1–7),
+  a live computed preview that mirrors the backend's FIG scoring math, and "Save & next"
+  to work down the start list. Judges are mapped to panel slots once per meet (stored in
+  the browser); scores are attributed to them automatically.
+- **Live standings** — per-apparatus and all-around rankings with level/age-group filters,
+  auto-refreshing every 5 seconds, marked *provisional* until the meet is completed.
 
 ```bash
 cd frontend
@@ -51,8 +76,10 @@ The UI is served at `http://127.0.0.1:5173` and proxies `/api/*` to the backend 
 `http://127.0.0.1:8000`, so run the backend (`uvicorn`, see above) alongside it. API types
 are generated from the backend's OpenAPI schema into `src/api/schema.d.ts`; after changing
 a backend schema or router, run `make types` from the repo root and commit the result.
-Run `npm test -- --run` for the Vitest suite and `npm run build` for a typechecked
-production build.
+Run `npm run build` for a typechecked production build.
+
+Deferred to later phases: the admin console (reference-data CRUD), judge self-scoring from
+stations (needs auth), itemized-penalty UI, and public results pages.
 
 ## Database migrations
 
@@ -78,6 +105,13 @@ applied once per test session, and each test runs inside its own transaction tha
 back at teardown (see `test/conftest.py`), so tests stay isolated without needing a fresh
 database per run. `make test` migrates the test database and runs pytest in one step.
 
+Frontend tests don't need the database — MSW fakes the API at the network layer:
+
+```bash
+cd frontend
+npm test -- --run   # or `npm test` for watch mode
+```
+
 ## Linting
 
 ```bash
@@ -96,15 +130,27 @@ ruff format .
 backend/
   app/
     main.py          # FastAPI app, router registration
-    db.py             # engine/session setup, get_db dependency
-    models.py         # SQLAlchemy ORM models
-    routers/          # one router per resource
-    schemas/          # Pydantic request/response models
+    db.py            # engine/session setup, get_db dependency
+    models.py        # SQLAlchemy ORM models
+    scoring.py       # FIG Code of Points scoring math + rankings
+    routers/         # one router per resource (+ results reporting)
+    schemas/         # Pydantic request/response models
+  scripts/           # demo-data seeder, OpenAPI schema export
+  migrations/        # Alembic environment + versioned migrations
   test/
-    conftest.py        # shared fixtures + model factory helpers
-    test_models/        # ORM model tests
-    test_schemas/        # Pydantic schema tests
-    test_routers/         # FastAPI endpoint tests (TestClient)
+    conftest.py      # shared fixtures + model factory helpers
+    test_models/     # ORM model tests
+    test_schemas/    # Pydantic schema tests
+    test_routers/    # FastAPI endpoint tests (TestClient)
+frontend/
+  src/
+    api/             # generated OpenAPI types + typed fetch client
+    lib/             # domain constants, client-side score math, shared hooks
+    components/      # app shell, shared UI
+    features/        # one folder per screen: meets, entries, scoring, standings
+  test/              # Vitest + Testing Library + MSW, mirrors src/
+docs/                # design specs and implementation plans
+spec/                # FIG Code of Points reference material
 ```
 
 ## Domain model

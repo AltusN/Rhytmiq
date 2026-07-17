@@ -50,10 +50,12 @@ query exactly as `level` does today:
 - `judgeName` returns `first_name last_name` (was `last_name` only).
 - Unassigned slots in the panel footer render visually distinct (amber text)
   rather than blending in as plain "unassigned".
-- When the selected competitor's **visible** boxes include an unassigned slot,
+- When the selected competitor's **required** slots include an unassigned one,
   show a one-line hint above the form with a link opening panel setup. (Today the
   setup link only renders when no competitor is selected — exactly when it isn't
-  needed.) E-only levels must not warn about unassigned D/A slots.
+  needed.) Required slots are the minimum viable panel — D, A, E1, E2 for full
+  levels; E1, E2 for E-only levels — so legitimately-empty E3/E4 slots never
+  trigger the hint, and E-only levels never warn about D/A.
 
 ## Item 5 — Unsaved-changes guard (`ScoreForm.tsx`, `ScoringPage.tsx`)
 

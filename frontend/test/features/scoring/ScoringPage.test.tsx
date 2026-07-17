@@ -169,6 +169,30 @@ test("unassigned slots render disabled boxes", async () => {
   expect(screen.getByLabelText("Artistry")).toBeDisabled();
 });
 
+test("the first enabled box is focused when a competitor is picked", async () => {
+  mockBase();
+  renderApp("/meets/5/scoring");
+  await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
+  expect(await screen.findByLabelText("D-Body")).toHaveFocus();
+});
+
+test("E-only levels focus E1 on mount", async () => {
+  const level5Entry = makeEntry({ id: 22, meet_id: 5, gymnast_id: 7, group_id: null, level: "level_5", bib_number: "13" });
+  mockBase({ entries: [level5Entry] });
+  renderApp("/meets/5/scoring");
+  await userEvent.click(await screen.findByRole("button", { name: /13 ·/ }));
+  expect(await screen.findByLabelText("E1")).toHaveFocus();
+});
+
+test("a disabled first slot is skipped when focusing", async () => {
+  savePanel(5, { E1: 2 }); // no D judge: D-Body/D-App render disabled
+  mockBase();
+  renderApp("/meets/5/scoring");
+  await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
+  expect(await screen.findByLabelText("D-Body")).toBeDisabled();
+  expect(screen.getByLabelText("E1")).toHaveFocus();
+});
+
 test("a clean save shows the Saved ✓ indicator; the next edit clears it", async () => {
   mockBase();
   server.use(

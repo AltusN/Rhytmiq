@@ -106,9 +106,18 @@ export function ScoreForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { register, handleSubmit, watch, setError, formState } =
+  const { register, handleSubmit, watch, setError, setFocus, formState } =
     useForm<FormValues>({ defaultValues });
   const [saving, setSaving] = useState(false);
+
+  // Mount-only, like defaultValues: the component is keyed by (entry, apparatus) in
+  // ScoringPage, so every competitor/apparatus switch is a fresh mount.
+  useEffect(() => {
+    if (meetLocked) return;
+    const first = visibleBoxes.find((b) => b.judgeId !== undefined);
+    if (first) setFocus(first.key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [justSaved, setJustSaved] = useState(false);
   useEffect(() => {

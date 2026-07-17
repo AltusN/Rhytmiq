@@ -189,6 +189,24 @@ test("completed meet renders the form read-only", async () => {
   expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 });
 
+test("routine-create failure reports a form-level error, not a penalty error", async () => {
+  mockBase();
+  server.use(
+    http.post(api("/routines/"), () =>
+      HttpResponse.json({ detail: "meet is completed" }, { status: 409 }),
+    ),
+  );
+  renderApp("/meets/5/scoring");
+  await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
+  await userEvent.type(await screen.findByLabelText("E1"), "8.25");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("meet is completed");
+  expect(
+    screen.getByLabelText("Penalty").parentElement?.textContent,
+  ).not.toContain("meet is completed");
+});
+
 test("a failed gymnasts query surfaces an error instead of silently numbering competitors", async () => {
   mockBase();
   server.use(

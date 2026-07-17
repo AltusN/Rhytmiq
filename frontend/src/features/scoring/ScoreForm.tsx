@@ -142,10 +142,16 @@ export function ScoreForm({
           penalty: penaltyLocked ? undefined : (parseBox(values.penalty) ?? 0),
           currentPenalty: routine ? toNum(routine.penalty) : 0,
         });
+        if (result.formError) {
+          setError("root.server", { type: "server", message: result.formError });
+        }
         for (const [key, message] of Object.entries(result.boxErrors)) {
           setError(key as BoxKey | "penalty", { type: "server", message });
         }
-        onSaved(result, next && Object.keys(result.boxErrors).length === 0);
+        onSaved(
+          result,
+          next && !result.formError && Object.keys(result.boxErrors).length === 0,
+        );
       } finally {
         setSaving(false);
       }
@@ -196,6 +202,11 @@ export function ScoreForm({
             : undefined,
         )}
       </div>
+      {formState.errors.root?.server && (
+        <p role="alert" className="mt-2 text-sm text-red-700">
+          {formState.errors.root.server.message}
+        </p>
+      )}
       <div className="mt-4 flex gap-6 rounded border border-dashed border-gray-300 p-2 text-sm">
         {!eOnly && <span>D: <strong>{fmt(preview.d)}</strong></span>}
         {!eOnly && <span>A: <strong>{fmt(preview.a)}</strong></span>}

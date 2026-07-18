@@ -156,6 +156,19 @@ test("the club filter refetches scoped to that club", async () => {
   expect(requested).toContain("2");
 });
 
+test("search filters rows client-side", async () => {
+  mockBase([
+    makeGroup({ id: 3, name: "Zvezda RG", club_id: 1 }),
+    makeGroup({ id: 4, name: "Junior Ensemble", club_id: 1 }),
+  ]);
+  renderApp("/admin/groups");
+  await screen.findByText("Zvezda RG");
+  const table = screen.getByRole("table");
+  await userEvent.type(screen.getByLabelText("Search"), "junior");
+  expect(within(table).queryByText("Zvezda RG")).toBeNull();
+  expect(within(table).getByText("Junior Ensemble")).toBeInTheDocument();
+});
+
 test("typing in the search box does not trigger a network request", async () => {
   mockBase([makeGroup({ id: 3, name: "Zvezda RG", club_id: 1 })]);
   let requestCount = 0;

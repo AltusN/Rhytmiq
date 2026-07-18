@@ -124,7 +124,10 @@ export function GymnastsPage() {
           <select
             aria-label="Club filter"
             value={clubFilter}
-            onChange={(e) => setClubFilter(e.target.value)}
+            onChange={(e) => {
+              setClubFilter(e.target.value);
+              clearDeleteError();
+            }}
             className="ml-2 rounded border border-gray-300 p-1"
           >
             <option value="">All clubs</option>
@@ -165,6 +168,7 @@ export function GymnastsPage() {
       <FormDialog
         open={dialog !== null}
         title={dialog?.row ? "Edit gymnast" : "New gymnast"}
+        onClose={() => setDialog(null)}
       >
         {dialog && (
           <GymnastForm

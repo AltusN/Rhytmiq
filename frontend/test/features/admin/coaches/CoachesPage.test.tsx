@@ -190,6 +190,20 @@ test("the club filter refetches scoped to that club", async () => {
   expect(requested).toContain("2");
 });
 
+test("search filters rows client-side", async () => {
+  mockBase([
+    makeCoach({ id: 7, first_name: "Thabo", last_name: "Mokoena", club_id: 1 }),
+    makeCoach({ id: 8, first_name: "Lerato", last_name: "Dlamini", club_id: 1 }),
+  ]);
+  renderApp("/admin/coaches");
+  await screen.findByText("Thabo Mokoena");
+  const table = screen.getByRole("table");
+  // "dlamini" only matches via the last-name half of the searchText accessor.
+  await userEvent.type(screen.getByLabelText("Search"), "dlamini");
+  expect(within(table).queryByText("Thabo Mokoena")).toBeNull();
+  expect(within(table).getByText("Lerato Dlamini")).toBeInTheDocument();
+});
+
 test("typing in the search box does not trigger a network request", async () => {
   mockBase([makeCoach({ id: 7, first_name: "Thabo", last_name: "Mokoena", club_id: 1 })]);
   let requestCount = 0;

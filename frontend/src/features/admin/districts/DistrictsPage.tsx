@@ -112,6 +112,7 @@ export function DistrictsPage() {
       <FormDialog
         open={dialog !== null}
         title={dialog?.row ? "Edit district" : "New district"}
+        onClose={() => setDialog(null)}
       >
         {dialog && (
           <DistrictForm

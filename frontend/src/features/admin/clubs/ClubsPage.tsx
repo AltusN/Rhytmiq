@@ -118,7 +118,10 @@ export function ClubsPage() {
           <select
             aria-label="District filter"
             value={districtFilter}
-            onChange={(e) => setDistrictFilter(e.target.value)}
+            onChange={(e) => {
+              setDistrictFilter(e.target.value);
+              clearDeleteError();
+            }}
             className="ml-2 rounded border border-gray-300 p-1"
           >
             <option value="">All districts</option>
@@ -154,7 +157,11 @@ export function ClubsPage() {
           emptyMessage="No clubs yet."
         />
       )}
-      <FormDialog open={dialog !== null} title={dialog?.row ? "Edit club" : "New club"}>
+      <FormDialog
+        open={dialog !== null}
+        title={dialog?.row ? "Edit club" : "New club"}
+        onClose={() => setDialog(null)}
+      >
         {dialog && (
           <ClubForm
             key={dialog.row?.id ?? "new"}

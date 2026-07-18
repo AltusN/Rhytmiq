@@ -46,7 +46,7 @@ export function ClubForm({
   // district_id is fixed at creation and excluded from ClubUpdate on the
   // backend — moving a club between districts is a domain operation that
   // deserves its own endpoint — so an edit never includes it in the diff,
-  // even though the field stays visible and editable in the dialog.
+  // even though the field stays visible (disabled) in the dialog.
   const buildBody = (v: ClubFormValues): ClubBody => {
     const full: ClubBody = {
       name: v.name,

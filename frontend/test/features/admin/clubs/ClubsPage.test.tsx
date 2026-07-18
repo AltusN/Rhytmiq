@@ -139,6 +139,32 @@ test("a delete error is cleared by a later successful save", async () => {
   confirmSpy.mockRestore();
 });
 
+test("a delete error is cleared when the district filter changes", async () => {
+  server.use(
+    http.get(api("/clubs/"), () =>
+      HttpResponse.json([makeClub({ id: 5, name: "Star Gymnastics", district_id: 1 })]),
+    ),
+    http.get(api("/districts/"), () =>
+      HttpResponse.json([
+        makeDistrict({ id: 1, name: "Western Cape" }),
+        makeDistrict({ id: 2, name: "Gauteng" }),
+      ]),
+    ),
+    http.delete(api("/clubs/:clubId"), () =>
+      HttpResponse.json({ detail: "Cannot delete club with existing gymnasts" }, { status: 409 }),
+    ),
+  );
+  const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+  renderApp("/admin/clubs");
+  await screen.findByText("Gauteng");
+  await userEvent.click(await screen.findByRole("button", { name: "Delete Star Gymnastics" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("existing gymnasts");
+  confirmSpy.mockRestore();
+
+  await userEvent.selectOptions(screen.getByLabelText("District filter"), "2");
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
 test("the district filter refetches scoped to that district", async () => {
   mockBase([makeClub({ id: 5, name: "Star Gymnastics", abbreviation: "STAR", district_id: 1 })]);
   const requested: (string | null)[] = [];
@@ -162,6 +188,21 @@ test("the district filter refetches scoped to that district", async () => {
   await userEvent.selectOptions(screen.getByLabelText("District filter"), "2");
   await screen.findByText("No clubs yet.");
   expect(requested).toContain("2");
+});
+
+test("search filters rows client-side", async () => {
+  mockBase([
+    makeClub({ id: 5, name: "Star Gymnastics", abbreviation: "SG", district_id: 1 }),
+    makeClub({ id: 6, name: "Rhythm Elite", abbreviation: "RE", district_id: 1 }),
+  ]);
+  renderApp("/admin/clubs");
+  await screen.findByText("Star Gymnastics");
+  const table = screen.getByRole("table");
+  // "sg" only matches via the abbreviation half of the searchText accessor —
+  // neither club name contains it.
+  await userEvent.type(screen.getByLabelText("Search"), "sg");
+  expect(within(table).queryByText("Rhythm Elite")).toBeNull();
+  expect(within(table).getByText("Star Gymnastics")).toBeInTheDocument();
 });
 
 test("typing in the search box does not trigger a network request", async () => {

@@ -1,5 +1,6 @@
 import type {
   ClubRead,
+  CoachRead,
   DistrictRead,
   GroupRead,
   GymnastRead,
@@ -91,6 +92,17 @@ export function makeClub(overrides: Partial<ClubRead> = {}): ClubRead {
     district_id: 1,
     name: "Star Gymnastics",
     abbreviation: "STAR",
+    ...overrides,
+  };
+}
+
+export function makeCoach(overrides: Partial<CoachRead> = {}): CoachRead {
+  return {
+    id: id(),
+    club_id: 1,
+    first_name: "Thabo",
+    last_name: "Mokoena",
+    is_head_coach: false,
     ...overrides,
   };
 }

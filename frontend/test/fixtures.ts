@@ -1,4 +1,5 @@
 import type {
+  DistrictRead,
   GroupRead,
   GymnastRead,
   JudgeRead,
@@ -77,6 +78,10 @@ export function makeRoutine(overrides: Partial<RoutineRead> = {}): RoutineRead {
     penalty: "0.00",
     ...overrides,
   };
+}
+
+export function makeDistrict(overrides: Partial<DistrictRead> = {}): DistrictRead {
+  return { id: id(), name: "Western Cape", abbreviation: "WC", ...overrides };
 }
 
 export function makeScore(overrides: Partial<JudgeScoreRead> = {}): JudgeScoreRead {

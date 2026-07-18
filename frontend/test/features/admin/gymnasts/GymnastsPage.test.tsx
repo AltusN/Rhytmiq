@@ -1,7 +1,7 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { makeClub, makeGymnast } from "../../../fixtures";
+import { makeClub, makeGroup, makeGymnast } from "../../../fixtures";
 import { api, server } from "../../../msw/server";
 import { renderApp } from "../../../utils";
 
@@ -93,4 +93,117 @@ test("surface clubs fetch error when gymnasts succeeds", async () => {
   );
   renderApp("/admin/gymnasts");
   expect(await screen.findByText("Clubs endpoint failed")).toBeInTheDocument();
+});
+
+test("creates a gymnast, sending nulls for the fields left blank", async () => {
+  mockBase();
+  server.use(
+    http.get(api("/groups/"), () =>
+      HttpResponse.json([makeGroup({ id: 3, name: "Zvezda RG" })]),
+    ),
+  );
+  let posted: Record<string, unknown> | null = null;
+  server.use(
+    http.post(api("/gymnasts/"), async ({ request }) => {
+      posted = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(makeGymnast(), { status: 201 });
+    }),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+  await userEvent.type(screen.getByLabelText("First name"), "Zoe");
+  await userEvent.type(screen.getByLabelText("Last name"), "Kruger");
+  await userEvent.selectOptions(screen.getByLabelText("Club"), "1");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(posted).toEqual({
+      first_name: "Zoe",
+      last_name: "Kruger",
+      club_id: 1,
+      group_id: null,
+      date_of_birth: null,
+      country_code: null,
+    }),
+  );
+});
+
+test("sends the optional date and country when filled in", async () => {
+  mockBase();
+  let posted: Record<string, unknown> | null = null;
+  server.use(
+    http.post(api("/gymnasts/"), async ({ request }) => {
+      posted = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(makeGymnast(), { status: 201 });
+    }),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+  await userEvent.type(screen.getByLabelText("First name"), "Zoe");
+  await userEvent.type(screen.getByLabelText("Last name"), "Kruger");
+  await userEvent.type(screen.getByLabelText("Date of birth"), "2011-04-02");
+  await userEvent.type(screen.getByLabelText("Country code"), "RSA");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(posted).toMatchObject({ date_of_birth: "2011-04-02", country_code: "RSA" }),
+  );
+});
+
+test("rejects an over-long country code before sending", async () => {
+  mockBase();
+  let called = false;
+  server.use(
+    http.post(api("/gymnasts/"), () => {
+      called = true;
+      return HttpResponse.json(makeGymnast(), { status: 201 });
+    }),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+  await userEvent.type(screen.getByLabelText("First name"), "Zoe");
+  await userEvent.type(screen.getByLabelText("Last name"), "Kruger");
+  await userEvent.type(screen.getByLabelText("Country code"), "RSAX");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("At most 3 characters")).toBeInTheDocument();
+  expect(called).toBe(false);
+});
+
+test("surfaces a groups fetch error when gymnasts and clubs succeed", async () => {
+  server.use(
+    http.get(api("/gymnasts/"), () =>
+      HttpResponse.json([
+        makeGymnast({ id: 10, first_name: "Anna", last_name: "Botha", club_id: 1 }),
+      ]),
+    ),
+    http.get(api("/clubs/"), () => HttpResponse.json([])),
+    http.get(api("/groups/"), () =>
+      HttpResponse.json({ detail: "Groups endpoint failed" }, { status: 500 }),
+    ),
+  );
+  renderApp("/admin/gymnasts");
+  expect(await screen.findByText("Groups endpoint failed")).toBeInTheDocument();
+});
+
+test("clears a stale form error once a retry succeeds", async () => {
+  mockBase();
+  let attempts = 0;
+  server.use(
+    http.post(api("/gymnasts/"), async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return HttpResponse.json({ detail: "club_id: FK not found" }, { status: 404 });
+      }
+      return HttpResponse.json(makeGymnast(), { status: 201 });
+    }),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+  await userEvent.type(screen.getByLabelText("First name"), "Zoe");
+  await userEvent.type(screen.getByLabelText("Last name"), "Kruger");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("club_id: FK not found")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  // A successful save closes the dialog, which takes the stale error with it.
+  await waitFor(() => expect(screen.queryByText("club_id: FK not found")).toBeNull());
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+  expect(screen.queryByText("club_id: FK not found")).toBeNull();
 });

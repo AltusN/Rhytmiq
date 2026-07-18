@@ -1,17 +1,31 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { apiDetail, client } from "../../../api/client";
-import type { ClubRead, GymnastRead } from "../../../api/types";
+import type { ClubRead, GroupRead, GymnastRead } from "../../../api/types";
 import { ErrorBanner } from "../../../components/ErrorBanner";
+import { GymnastForm, type GymnastBody } from "./GymnastForm";
 
 export function GymnastsPage() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [clubFilter, setClubFilter] = useState("");
+  // null = closed; { row: null } = create; { row } = edit
+  const [dialog, setDialog] = useState<{ row: GymnastRead | null } | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const clubsQuery = useQuery({
     queryKey: ["clubs", {}],
     queryFn: async (): Promise<ClubRead[]> => {
       const { data, error } = await client.GET("/clubs/");
+      if (error) throw new Error(apiDetail(error));
+      return data;
+    },
+  });
+
+  const groupsQuery = useQuery({
+    queryKey: ["groups", {}],
+    queryFn: async (): Promise<GroupRead[]> => {
+      const { data, error } = await client.GET("/groups/");
       if (error) throw new Error(apiDetail(error));
       return data;
     },
@@ -29,6 +43,22 @@ export function GymnastsPage() {
     },
   });
 
+  const saveMutation = useMutation({
+    mutationFn: async (body: GymnastBody) => {
+      const { data, error } = await client.POST("/gymnasts/", {
+        body: body as { first_name: string; last_name: string },
+      });
+      if (error) throw new Error(apiDetail(error));
+      return data;
+    },
+    onSuccess: () => {
+      setFormError(null);
+      setDialog(null);
+      queryClient.invalidateQueries({ queryKey: ["gymnasts"] });
+    },
+    onError: (e: Error) => setFormError(e.message),
+  });
+
   const clubName = (id: number | null | undefined) =>
     id === null ? "—" : (clubsQuery.data?.find((c) => c.id === id)?.name ?? "—");
 
@@ -43,6 +73,16 @@ export function GymnastsPage() {
     <div>
       <div className="mb-3 flex items-center justify-between">
         <h1 className="text-xl font-bold">Gymnasts</h1>
+        <button
+          type="button"
+          onClick={() => {
+            setFormError(null);
+            setDialog({ row: null });
+          }}
+          className="rounded bg-blue-600 px-3 py-1 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          New gymnast
+        </button>
       </div>
       <div className="mb-3 flex gap-3">
         <label className="text-sm">
@@ -74,7 +114,8 @@ export function GymnastsPage() {
       <ErrorBanner
         message={
           (gymnastsQuery.error ? gymnastsQuery.error.message : null) ||
-          (clubsQuery.error ? clubsQuery.error.message : null)
+          (clubsQuery.error ? clubsQuery.error.message : null) ||
+          (groupsQuery.error ? groupsQuery.error.message : null)
         }
       />
       {gymnastsQuery.data && rows.length === 0 && (
@@ -103,6 +144,25 @@ export function GymnastsPage() {
             ))}
           </tbody>
         </table>
+      )}
+      {dialog && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/30">
+          <div className="w-96 rounded border border-gray-200 bg-white p-4 shadow-lg">
+            <h2 className="mb-2 text-lg font-semibold">
+              {dialog.row ? "Edit gymnast" : "New gymnast"}
+            </h2>
+            <GymnastForm
+              key={dialog.row?.id ?? "new"}
+              initial={dialog.row}
+              clubs={clubsQuery.data ?? []}
+              groups={groupsQuery.data ?? []}
+              pending={saveMutation.isPending}
+              error={formError}
+              onSubmit={(body) => saveMutation.mutate(body)}
+              onCancel={() => setDialog(null)}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

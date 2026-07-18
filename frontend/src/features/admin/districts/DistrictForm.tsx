@@ -5,7 +5,7 @@ import type { DistrictRead } from "../../../api/types";
 import { ErrorBanner } from "../../../components/ErrorBanner";
 
 const districtSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
+  name: z.string().trim().min(2, "At least 2 characters").max(100, "At most 100 characters"),
   abbreviation: z
     .string()
     .trim()

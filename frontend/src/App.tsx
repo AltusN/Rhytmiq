@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Layout } from "./components/Layout";
 import { AdminShell } from "./features/admin/AdminShell";
+import { ClubsPage } from "./features/admin/clubs/ClubsPage";
 import { DistrictsPage } from "./features/admin/districts/DistrictsPage";
 import { GymnastsPage } from "./features/admin/gymnasts/GymnastsPage";
 import { EntriesPage } from "./features/entries/EntriesPage";
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/admin" element={<AdminShell />}>
           <Route index element={<Navigate to="districts" replace />} />
           <Route path="districts" element={<DistrictsPage />} />
+          <Route path="clubs" element={<ClubsPage />} />
           <Route path="gymnasts" element={<GymnastsPage />} />
         </Route>
       </Route>

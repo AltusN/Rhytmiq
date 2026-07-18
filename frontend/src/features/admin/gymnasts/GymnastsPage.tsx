@@ -71,7 +71,12 @@ export function GymnastsPage() {
           </select>
         </label>
       </div>
-      <ErrorBanner message={gymnastsQuery.error ? gymnastsQuery.error.message : null} />
+      <ErrorBanner
+        message={
+          (gymnastsQuery.error ? gymnastsQuery.error.message : null) ||
+          (clubsQuery.error ? clubsQuery.error.message : null)
+        }
+      />
       {gymnastsQuery.data && rows.length === 0 && (
         <p className="text-sm text-gray-500">No gymnasts yet.</p>
       )}

@@ -78,3 +78,19 @@ test("the club filter refetches scoped to that club", async () => {
   await screen.findByText("No gymnasts yet.");
   expect(requested).toContain("2");
 });
+
+test("surface clubs fetch error when gymnasts succeeds", async () => {
+  server.use(
+    http.get(api("/gymnasts/"), () =>
+      HttpResponse.json([
+        makeGymnast({ id: 10, first_name: "Anna", last_name: "Botha", club_id: 1 }),
+      ]),
+    ),
+    http.get(api("/clubs/"), () =>
+      HttpResponse.json({ detail: "Clubs endpoint failed" }, { status: 500 }),
+    ),
+    http.get(api("/groups/"), () => HttpResponse.json([])),
+  );
+  renderApp("/admin/gymnasts");
+  expect(await screen.findByText("Clubs endpoint failed")).toBeInTheDocument();
+});

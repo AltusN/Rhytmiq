@@ -191,3 +191,50 @@ test("shows the API detail when a delete is blocked by dependents", async () => 
   expect(await screen.findByRole("alert")).toHaveTextContent("existing clubs");
   confirmSpy.mockRestore();
 });
+
+test("clears a stale delete error when a save succeeds", async () => {
+  server.use(
+    http.get(api("/districts/"), () =>
+      HttpResponse.json([makeDistrict({ id: 4, name: "Gauteng" })]),
+    ),
+  );
+  server.use(
+    http.delete(api("/districts/:districtId"), () =>
+      HttpResponse.json(
+        { detail: "Cannot delete district with existing clubs" },
+        { status: 409 },
+      ),
+    ),
+  );
+  server.use(
+    http.post(api("/districts/"), async () => {
+      return HttpResponse.json(makeDistrict({ id: 5, name: "Free State" }), { status: 201 });
+    }),
+  );
+  server.use(
+    http.get(api("/districts/"), () =>
+      HttpResponse.json([
+        makeDistrict({ id: 4, name: "Gauteng" }),
+        makeDistrict({ id: 5, name: "Free State" }),
+      ]),
+    ),
+  );
+  const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+  renderApp("/admin/districts");
+  // Step 1: Delete fails with 409, error shows in banner
+  await userEvent.click(await screen.findByRole("button", { name: "Delete Gauteng" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("existing clubs");
+  confirmSpy.mockRestore();
+  // Step 2: Create a new district, which succeeds
+  await userEvent.click(screen.getByRole("button", { name: "New district" }));
+  await userEvent.type(screen.getByLabelText("Name"), "Free State");
+  await userEvent.type(screen.getByLabelText("Abbreviation"), "FS");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  // Step 3: Wait for the dialog to close by verifying Free State appears in the table
+  await waitFor(() => {
+    expect(screen.getByText("Free State")).toBeInTheDocument();
+  });
+  // The old delete error should no longer appear in the banner
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});

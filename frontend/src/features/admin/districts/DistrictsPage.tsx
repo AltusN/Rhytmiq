@@ -40,6 +40,7 @@ export function DistrictsPage() {
     },
     onSuccess: () => {
       setFormError(null);
+      setListError(null);
       setDialog(null);
       queryClient.invalidateQueries({ queryKey: ["districts"] });
     },

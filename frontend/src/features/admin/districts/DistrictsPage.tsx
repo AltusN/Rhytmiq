@@ -3,6 +3,8 @@ import { useState } from "react";
 import { apiDetail, client } from "../../../api/client";
 import type { DistrictRead } from "../../../api/types";
 import { ErrorBanner } from "../../../components/ErrorBanner";
+import { FormDialog } from "../components/FormDialog";
+import { ResourceTable } from "../components/ResourceTable";
 import { DistrictForm, type DistrictBody } from "./DistrictForm";
 
 export function DistrictsPage() {
@@ -84,66 +86,37 @@ export function DistrictsPage() {
       <ErrorBanner
         message={districtsQuery.error ? districtsQuery.error.message : listError}
       />
-      {districtsQuery.data?.length === 0 && (
-        <p className="text-sm text-gray-500">No districts yet.</p>
+      {districtsQuery.data && (
+        <ResourceTable
+          rows={districtsQuery.data}
+          columns={[
+            { header: "Name", render: (d) => d.name },
+            { header: "Abbreviation", render: (d) => d.abbreviation },
+          ]}
+          rowLabel={(d) => d.name}
+          onEdit={(d) => {
+            setFormError(null);
+            setDialog({ row: d });
+          }}
+          onDelete={confirmDelete}
+          emptyMessage="No districts yet."
+        />
       )}
-      {districtsQuery.data && districtsQuery.data.length > 0 && (
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-gray-300 text-left">
-              <th className="py-1">Name</th>
-              <th className="py-1">Abbreviation</th>
-              <th className="py-1" />
-            </tr>
-          </thead>
-          <tbody>
-            {districtsQuery.data.map((d) => (
-              <tr key={d.id} className="border-b border-gray-200">
-                <td className="py-1">{d.name}</td>
-                <td className="py-1">{d.abbreviation}</td>
-                <td className="py-1 text-right">
-                  <button
-                    type="button"
-                    aria-label={`Edit ${d.name}`}
-                    onClick={() => {
-                      setFormError(null);
-                      setDialog({ row: d });
-                    }}
-                    className="rounded border border-gray-300 px-2 py-0.5 text-xs"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Delete ${d.name}`}
-                    onClick={() => confirmDelete(d)}
-                    className="ml-2 rounded border border-gray-300 px-2 py-0.5 text-xs text-red-700"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {dialog && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/30">
-          <div className="w-96 rounded border border-gray-200 bg-white p-4 shadow-lg">
-            <h2 className="mb-2 text-lg font-semibold">
-              {dialog.row ? "Edit district" : "New district"}
-            </h2>
-            <DistrictForm
-              key={dialog.row?.id ?? "new"}
-              initial={dialog.row}
-              pending={saveMutation.isPending}
-              error={formError}
-              onSubmit={(body) => saveMutation.mutate(body)}
-              onCancel={() => setDialog(null)}
-            />
-          </div>
-        </div>
-      )}
+      <FormDialog
+        open={dialog !== null}
+        title={dialog?.row ? "Edit district" : "New district"}
+      >
+        {dialog && (
+          <DistrictForm
+            key={dialog.row?.id ?? "new"}
+            initial={dialog.row}
+            pending={saveMutation.isPending}
+            error={formError}
+            onSubmit={(body) => saveMutation.mutate(body)}
+            onCancel={() => setDialog(null)}
+          />
+        )}
+      </FormDialog>
     </div>
   );
 }

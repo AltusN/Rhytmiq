@@ -3,6 +3,8 @@ import { useState } from "react";
 import { apiDetail, client } from "../../../api/client";
 import type { ClubRead, GroupRead, GymnastRead } from "../../../api/types";
 import { ErrorBanner } from "../../../components/ErrorBanner";
+import { FormDialog } from "../components/FormDialog";
+import { ResourceTable } from "../components/ResourceTable";
 import { GymnastForm, type GymnastBody } from "./GymnastForm";
 
 export function GymnastsPage() {
@@ -155,74 +157,41 @@ export function GymnastsPage() {
           listError
         }
       />
-      {gymnastsQuery.data && rows.length === 0 && (
-        <p className="text-sm text-gray-500">No gymnasts yet.</p>
+      {gymnastsQuery.data && (
+        <ResourceTable
+          rows={rows}
+          columns={[
+            { header: "Name", render: (g) => `${g.first_name} ${g.last_name}` },
+            { header: "Club", render: (g) => clubName(g.club_id) },
+            { header: "Date of birth", render: (g) => g.date_of_birth ?? "—" },
+            { header: "Country", render: (g) => g.country_code ?? "—" },
+          ]}
+          rowLabel={(g) => `${g.first_name} ${g.last_name}`}
+          onEdit={(g) => {
+            setFormError(null);
+            setDialog({ row: g });
+          }}
+          onDelete={confirmDelete}
+          emptyMessage="No gymnasts yet."
+        />
       )}
-      {rows.length > 0 && (
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-gray-300 text-left">
-              <th className="py-1">Name</th>
-              <th className="py-1">Club</th>
-              <th className="py-1">Date of birth</th>
-              <th className="py-1">Country</th>
-              <th className="py-1" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((g) => (
-              <tr key={g.id} className="border-b border-gray-200">
-                <td className="py-1">
-                  {g.first_name} {g.last_name}
-                </td>
-                <td className="py-1">{clubName(g.club_id)}</td>
-                <td className="py-1">{g.date_of_birth ?? "—"}</td>
-                <td className="py-1">{g.country_code ?? "—"}</td>
-                <td className="py-1 text-right">
-                  <button
-                    type="button"
-                    aria-label={`Edit ${g.first_name} ${g.last_name}`}
-                    onClick={() => {
-                      setFormError(null);
-                      setDialog({ row: g });
-                    }}
-                    className="rounded border border-gray-300 px-2 py-0.5 text-xs"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Delete ${g.first_name} ${g.last_name}`}
-                    onClick={() => confirmDelete(g)}
-                    className="ml-2 rounded border border-gray-300 px-2 py-0.5 text-xs text-red-700"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {dialog && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/30">
-          <div className="w-96 rounded border border-gray-200 bg-white p-4 shadow-lg">
-            <h2 className="mb-2 text-lg font-semibold">
-              {dialog.row ? "Edit gymnast" : "New gymnast"}
-            </h2>
-            <GymnastForm
-              key={dialog.row?.id ?? "new"}
-              initial={dialog.row}
-              clubs={clubsQuery.data ?? []}
-              groups={groupsQuery.data ?? []}
-              pending={saveMutation.isPending}
-              error={formError}
-              onSubmit={(body) => saveMutation.mutate(body)}
-              onCancel={() => setDialog(null)}
-            />
-          </div>
-        </div>
-      )}
+      <FormDialog
+        open={dialog !== null}
+        title={dialog?.row ? "Edit gymnast" : "New gymnast"}
+      >
+        {dialog && (
+          <GymnastForm
+            key={dialog.row?.id ?? "new"}
+            initial={dialog.row}
+            clubs={clubsQuery.data ?? []}
+            groups={groupsQuery.data ?? []}
+            pending={saveMutation.isPending}
+            error={formError}
+            onSubmit={(body) => saveMutation.mutate(body)}
+            onCancel={() => setDialog(null)}
+          />
+        )}
+      </FormDialog>
     </div>
   );
 }

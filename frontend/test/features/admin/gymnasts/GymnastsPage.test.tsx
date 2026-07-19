@@ -464,3 +464,44 @@ test("keeps an orphaned group in the options and does not drop it on an unrelate
 
   await waitFor(() => expect(patched).toEqual({ first_name: "Anna" }));
 });
+
+test("edit: does not resurrect the original group as a ghost option after the club is changed", async () => {
+  // Group 10 genuinely belongs to club 1, the gymnast's originally-loaded club -- it
+  // is NOT an orphan. Once the user actively changes Club away from club 1, group 10
+  // must not reappear as a flagged " (other club)" ghost: that flag exists only to
+  // preserve the as-loaded pairing, and the user has just replaced it.
+  mockBase([
+    makeGymnast({
+      id: 10,
+      first_name: "Anna",
+      last_name: "Botha",
+      club_id: 1,
+      group_id: 10,
+    }),
+  ]);
+  server.use(
+    http.get(api("/clubs/"), () =>
+      HttpResponse.json([makeClub({ id: 1, name: "Cape RG" }), makeClub({ id: 2, name: "Durban RG" })]),
+    ),
+  );
+  server.use(
+    http.get(api("/groups/"), () =>
+      HttpResponse.json([
+        makeGroup({ id: 10, club_id: 1, name: "Cape Juniors" }),
+        makeGroup({ id: 20, club_id: 2, name: "Durban Seniors" }),
+      ]),
+    ),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "Edit Anna Botha" }));
+
+  const group = screen.getByLabelText("Group") as HTMLSelectElement;
+  await waitFor(() => expect(group.value).toBe("10"));
+  expect(within(group).getByText("Cape Juniors")).toBeInTheDocument();
+
+  await userEvent.selectOptions(screen.getByLabelText("Club"), "2");
+
+  expect(within(group).getByText("Durban Seniors")).toBeInTheDocument();
+  expect(within(group).queryByText("Cape Juniors")).not.toBeInTheDocument();
+  expect(within(group).queryByText(/\(other club\)/)).not.toBeInTheDocument();
+});

@@ -73,14 +73,22 @@ export function GymnastForm({
    * from the gymnast's (line 44 on POST, line 117 on PATCH), so cross-club options are
    * provably invalid — filtering them out is correctness, not polish.
    *
-   * The assigned group is always kept, even when it's an orphan from another club:
-   * dropping it would blank the select and silently unassign the gymnast on the next
-   * save, which looks like a successful edit.
+   * The assigned group is kept as a flagged ghost option when it's an orphan from
+   * another club, but ONLY while the selected club still matches the gymnast's
+   * originally-loaded club (`clubUnchanged`): dropping it on the very first render
+   * would blank the select and silently unassign the gymnast on the next save. Once
+   * the user has actively changed the club, that as-loaded pairing is stale — the
+   * club onChange handler has already cleared group_id — and re-showing the ghost
+   * would offer, as a selectable option, exactly the invalid club/group pair this
+   * filter exists to prevent. Do not drop the `clubUnchanged` guard: it is not
+   * redundant with the `inClub.some(...)` check above it.
    */
   const groupOptions = (() => {
     const inClub = groups.filter((g) => String(g.club_id) === selectedClubId);
     const assignedId = initial?.group_id;
     if (assignedId == null || inClub.some((g) => g.id === assignedId)) return inClub;
+    const clubUnchanged = selectedClubId === (initial?.club_id?.toString() ?? "");
+    if (!clubUnchanged) return inClub;
     const orphan = groups.find((g) => g.id === assignedId);
     return orphan ? [{ ...orphan, name: `${orphan.name} (other club)` }, ...inClub] : inClub;
   })();

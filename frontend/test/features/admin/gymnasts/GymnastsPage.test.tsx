@@ -505,3 +505,44 @@ test("edit: does not resurrect the original group as a ghost option after the cl
   expect(within(group).queryByText("Cape Juniors")).not.toBeInTheDocument();
   expect(within(group).queryByText(/\(other club\)/)).not.toBeInTheDocument();
 });
+
+test("edit: does not resurrect the ghost after a club round-trip back to the original club", async () => {
+  // Gymnast 5 is a true orphan: club 1, group 20, where group 20 belongs to
+  // club 2. The ghost must show on load, but once the user changes the club
+  // away and then back to club 1 (an ordinary "go back" correction), group_id
+  // has been cleared and no longer matches the as-loaded pairing -- the ghost
+  // must not reappear, or the user could select it and reconstruct the exact
+  // invalid club/group pair this filter exists to prevent.
+  server.use(
+    http.get(api("/gymnasts/"), () =>
+      HttpResponse.json([
+        makeGymnast({ id: 5, club_id: 1, group_id: 20, first_name: "Ana", last_name: "Meyer" }),
+      ]),
+    ),
+  );
+  server.use(
+    http.get(api("/clubs/"), () =>
+      HttpResponse.json([makeClub({ id: 1, name: "Cape RG" }), makeClub({ id: 2, name: "Durban RG" })]),
+    ),
+  );
+  server.use(
+    http.get(api("/groups/"), () =>
+      HttpResponse.json([
+        makeGroup({ id: 10, club_id: 1, name: "Cape Juniors" }),
+        makeGroup({ id: 20, club_id: 2, name: "Durban Seniors" }),
+      ]),
+    ),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "Edit Ana Meyer" }));
+
+  const group = screen.getByLabelText("Group") as HTMLSelectElement;
+  await waitFor(() => expect(group.value).toBe("20"));
+  expect(within(group).getByText("Durban Seniors (other club)")).toBeInTheDocument();
+
+  await userEvent.selectOptions(screen.getByLabelText("Club"), "2");
+  await userEvent.selectOptions(screen.getByLabelText("Club"), "1");
+
+  expect(within(group).queryByText(/\(other club\)/)).not.toBeInTheDocument();
+  expect(screen.queryByText("Durban Seniors (other club)")).not.toBeInTheDocument();
+});

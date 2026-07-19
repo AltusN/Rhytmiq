@@ -67,6 +67,7 @@ export function GymnastForm({
   const { dirtyFields, errors } = formState;
 
   const selectedClubId = watch("club_id");
+  const selectedGroupId = watch("group_id");
 
   /**
    * Group.club_id is NOT NULL and routers/gymnast.py rejects a group whose club differs
@@ -74,21 +75,27 @@ export function GymnastForm({
    * provably invalid — filtering them out is correctness, not polish.
    *
    * The assigned group is kept as a flagged ghost option when it's an orphan from
-   * another club, but ONLY while the selected club still matches the gymnast's
-   * originally-loaded club (`clubUnchanged`): dropping it on the very first render
-   * would blank the select and silently unassign the gymnast on the next save. Once
-   * the user has actively changed the club, that as-loaded pairing is stale — the
-   * club onChange handler has already cleared group_id — and re-showing the ghost
-   * would offer, as a selectable option, exactly the invalid club/group pair this
-   * filter exists to prevent. Do not drop the `clubUnchanged` guard: it is not
-   * redundant with the `inClub.some(...)` check above it.
+   * another club, but ONLY while the form still holds the exact as-loaded (club,
+   * group) pairing: dropping it on the very first render would blank the select and
+   * silently unassign the gymnast on the next save. That "still holds" check must
+   * compare BOTH the current club value and the current group value against their
+   * initial values — comparing club alone is not enough. A club round-trip (change
+   * away, then change back to the original club) restores a club-only match while
+   * `group_id` stays cleared from the earlier onChange, so a club-only comparison
+   * re-arms the ghost and lets the user select it, reconstructing the exact invalid
+   * club/group pair this filter exists to prevent. Comparing the group value too
+   * closes that gap: once group_id has been cleared, it no longer equals
+   * `initial.group_id`, so the ghost stays gone until the pairing is genuinely
+   * restored.
    */
   const groupOptions = (() => {
     const inClub = groups.filter((g) => String(g.club_id) === selectedClubId);
     const assignedId = initial?.group_id;
     if (assignedId == null || inClub.some((g) => g.id === assignedId)) return inClub;
-    const clubUnchanged = selectedClubId === (initial?.club_id?.toString() ?? "");
-    if (!clubUnchanged) return inClub;
+    const pairingUnchanged =
+      selectedClubId === (initial?.club_id?.toString() ?? "") &&
+      selectedGroupId === (initial?.group_id?.toString() ?? "");
+    if (!pairingUnchanged) return inClub;
     const orphan = groups.find((g) => g.id === assignedId);
     return orphan ? [{ ...orphan, name: `${orphan.name} (other club)` }, ...inClub] : inClub;
   })();

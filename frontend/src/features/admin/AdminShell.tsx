@@ -7,6 +7,7 @@ const RESOURCES = [
   { path: "coaches", label: "Coaches" },
   { path: "groups", label: "Groups" },
   { path: "gymnasts", label: "Gymnasts" },
+  { path: "judges", label: "Judges" },
 ];
 
 export function AdminShell() {

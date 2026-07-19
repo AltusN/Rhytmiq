@@ -6,6 +6,7 @@ import { CoachesPage } from "./features/admin/coaches/CoachesPage";
 import { DistrictsPage } from "./features/admin/districts/DistrictsPage";
 import { GroupsPage } from "./features/admin/groups/GroupsPage";
 import { GymnastsPage } from "./features/admin/gymnasts/GymnastsPage";
+import { JudgesPage } from "./features/admin/judges/JudgesPage";
 import { EntriesPage } from "./features/entries/EntriesPage";
 import { MeetListPage } from "./features/meets/MeetListPage";
 import { MeetShell } from "./features/meets/MeetShell";
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="coaches" element={<CoachesPage />} />
           <Route path="groups" element={<GroupsPage />} />
           <Route path="gymnasts" element={<GymnastsPage />} />
+          <Route path="judges" element={<JudgesPage />} />
         </Route>
       </Route>
     </Routes>

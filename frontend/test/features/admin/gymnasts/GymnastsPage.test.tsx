@@ -295,3 +295,120 @@ test("a later successful save clears a stale delete error", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 });
+
+test("offers only groups belonging to the selected club", async () => {
+  server.use(http.get(api("/gymnasts/"), () => HttpResponse.json([])));
+  server.use(
+    http.get(api("/clubs/"), () =>
+      HttpResponse.json([makeClub({ id: 1, name: "Cape RG" }), makeClub({ id: 2, name: "Durban RG" })]),
+    ),
+  );
+  server.use(
+    http.get(api("/groups/"), () =>
+      HttpResponse.json([
+        makeGroup({ id: 10, club_id: 1, name: "Cape Juniors" }),
+        makeGroup({ id: 20, club_id: 2, name: "Durban Seniors" }),
+      ]),
+    ),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+
+  const group = screen.getByLabelText("Group");
+  expect(group).toBeDisabled();
+
+  // Scoped to the dialog: "Cape RG" also appears as a page-level club-filter
+  // <option>, which is an equally valid (but wrong) getByText match otherwise.
+  const dialog = screen.getByRole("dialog");
+  await waitFor(() => expect(within(dialog).getByText("Cape RG")).toBeInTheDocument());
+  await userEvent.selectOptions(screen.getByLabelText("Club"), "1");
+
+  expect(group).toBeEnabled();
+  expect(within(group).getByText("Cape Juniors")).toBeInTheDocument();
+  expect(within(group).queryByText("Durban Seniors")).not.toBeInTheDocument();
+});
+
+test("clears the group when the club changes", async () => {
+  server.use(http.get(api("/gymnasts/"), () => HttpResponse.json([])));
+  server.use(
+    http.get(api("/clubs/"), () =>
+      HttpResponse.json([makeClub({ id: 1, name: "Cape RG" }), makeClub({ id: 2, name: "Durban RG" })]),
+    ),
+  );
+  server.use(
+    http.get(api("/groups/"), () =>
+      HttpResponse.json([
+        makeGroup({ id: 10, club_id: 1, name: "Cape Juniors" }),
+        makeGroup({ id: 20, club_id: 2, name: "Durban Seniors" }),
+      ]),
+    ),
+  );
+  let posted: Record<string, unknown> | null = null;
+  server.use(
+    http.post(api("/gymnasts/"), async ({ request }) => {
+      posted = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(makeGymnast(), { status: 201 });
+    }),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+  // Scoped to the dialog: "Cape RG" also appears as a page-level club-filter
+  // <option>, which is an equally valid (but wrong) getByText match otherwise.
+  await waitFor(() =>
+    expect(within(screen.getByRole("dialog")).getByText("Cape RG")).toBeInTheDocument(),
+  );
+
+  await userEvent.selectOptions(screen.getByLabelText("Club"), "1");
+  await userEvent.selectOptions(screen.getByLabelText("Group"), "10");
+  await userEvent.selectOptions(screen.getByLabelText("Club"), "2");
+
+  expect((screen.getByLabelText("Group") as HTMLSelectElement).value).toBe("");
+
+  await userEvent.type(screen.getByLabelText("First name"), "Ana");
+  await userEvent.type(screen.getByLabelText("Last name"), "Meyer");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(posted).not.toBeNull());
+  expect(posted!.group_id).toBeNull();
+  expect(posted!.club_id).toBe(2);
+});
+
+test("keeps an orphaned group in the options and does not drop it on an unrelated save", async () => {
+  // Gymnast 5 is in club 1 but assigned group 20, which belongs to club 2.
+  // Filtering must not blank the select and silently unassign the group.
+  server.use(
+    http.get(api("/gymnasts/"), () =>
+      HttpResponse.json([
+        makeGymnast({ id: 5, club_id: 1, group_id: 20, first_name: "Ana", last_name: "Meyer" }),
+      ]),
+    ),
+  );
+  server.use(http.get(api("/clubs/"), () => HttpResponse.json([makeClub({ id: 1, name: "Cape RG" })])));
+  server.use(
+    http.get(api("/groups/"), () =>
+      HttpResponse.json([
+        makeGroup({ id: 10, club_id: 1, name: "Cape Juniors" }),
+        makeGroup({ id: 20, club_id: 2, name: "Durban Seniors" }),
+      ]),
+    ),
+  );
+  let patched: Record<string, unknown> | null = null;
+  server.use(
+    http.patch(api("/gymnasts/5"), async ({ request }) => {
+      patched = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(makeGymnast({ id: 5 }));
+    }),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "Edit Ana Meyer" }));
+
+  const group = screen.getByLabelText("Group") as HTMLSelectElement;
+  await waitFor(() => expect(group.value).toBe("20"));
+  expect(within(group).getByText(/Durban Seniors/)).toBeInTheDocument();
+
+  const first = screen.getByLabelText("First name");
+  await userEvent.clear(first);
+  await userEvent.type(first, "Anna");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => expect(patched).toEqual({ first_name: "Anna" }));
+});

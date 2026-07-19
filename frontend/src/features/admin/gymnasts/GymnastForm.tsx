@@ -53,7 +53,7 @@ export function GymnastForm({
   onSubmit: (body: GymnastBody) => void;
   onCancel: () => void;
 }) {
-  const { register, handleSubmit, formState } = useForm<GymnastFormValues>({
+  const { register, handleSubmit, formState, watch, setValue } = useForm<GymnastFormValues>({
     resolver: zodResolver(gymnastSchema),
     defaultValues: {
       first_name: initial?.first_name ?? "",
@@ -65,6 +65,25 @@ export function GymnastForm({
     },
   });
   const { dirtyFields, errors } = formState;
+
+  const selectedClubId = watch("club_id");
+
+  /**
+   * Group.club_id is NOT NULL and routers/gymnast.py rejects a group whose club differs
+   * from the gymnast's (line 44 on POST, line 117 on PATCH), so cross-club options are
+   * provably invalid — filtering them out is correctness, not polish.
+   *
+   * The assigned group is always kept, even when it's an orphan from another club:
+   * dropping it would blank the select and silently unassign the gymnast on the next
+   * save, which looks like a successful edit.
+   */
+  const groupOptions = (() => {
+    const inClub = groups.filter((g) => String(g.club_id) === selectedClubId);
+    const assignedId = initial?.group_id;
+    if (assignedId == null || inClub.some((g) => g.id === assignedId)) return inClub;
+    const orphan = groups.find((g) => g.id === assignedId);
+    return orphan ? [{ ...orphan, name: `${orphan.name} (other club)` }, ...inClub] : inClub;
+  })();
 
   const buildBody = (v: GymnastFormValues): GymnastBody => {
     const full: GymnastBody = {
@@ -110,14 +129,21 @@ export function GymnastForm({
         label="Club"
         noneLabel="— none —"
         options={clubs.map((c) => ({ id: c.id, label: c.name }))}
-        {...register("club_id")}
+        {...register("club_id", {
+          onChange: () => setValue("group_id", "", { shouldDirty: true }),
+        })}
       />
       <FkSelect
         label="Group"
         noneLabel="— none —"
-        options={groups.map((g) => ({ id: g.id, label: g.name }))}
+        options={groupOptions.map((g) => ({ id: g.id, label: g.name }))}
+        disabled={selectedClubId === ""}
+        title={selectedClubId === "" ? "Select a club to choose a group" : undefined}
         {...register("group_id")}
       />
+      {selectedClubId === "" && (
+        <span className="text-xs text-gray-500">Select a club to choose a group</span>
+      )}
       <label className="text-sm">
         Date of birth
         <input

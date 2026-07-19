@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { makeJudge } from "../../../fixtures";
@@ -16,8 +16,10 @@ test("lists judges", async () => {
   );
   renderApp("/admin/judges");
   expect(await screen.findByText("Naledi")).toBeInTheDocument();
-  expect(screen.getByText("Cat I")).toBeInTheDocument();
-  expect(screen.getByText("BUL")).toBeInTheDocument();
+  // Scope to the table: country codes also appear as <option>s in the country filter.
+  const table = within(screen.getByRole("table"));
+  expect(table.getByText("Cat I")).toBeInTheDocument();
+  expect(table.getByText("BUL")).toBeInTheDocument();
 });
 
 test("shows an empty message when there are no judges", async () => {

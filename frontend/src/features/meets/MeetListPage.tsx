@@ -45,14 +45,12 @@ export function MeetListPage() {
         if (error) throw new Error(apiDetail(error));
         return data;
       }
-      // MeetCreate.status has a server-side default (draft) but is still marked
-      // required in the generated schema (same pattern as other defaulted fields
-      // like CoachCreate.is_head_coach) — so a body without `status` doesn't
-      // structurally satisfy MeetCreate even though omitting it is exactly what
-      // we want (see the "status absent from this form" note above). Bridge
-      // through `unknown` rather than fabricating a status value to send.
+      // MeetCreate.status is required by the generated type (openapi-typescript doesn't
+      // treat the backend's server-side `draft` default as optional), but the server
+      // already defaults it -- omit it on the wire (see the "status absent from this
+      // form" note above) and assert the narrower literal against the generated type.
       const { data, error } = await client.POST("/meets/", {
-        body: body as unknown as components["schemas"]["MeetCreate"],
+        body: body as components["schemas"]["MeetCreate"],
       });
       if (error) throw new Error(apiDetail(error));
       return data;

@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { makeDistrict, makeMeet } from "../../fixtures";
@@ -82,6 +82,41 @@ test("creates a meet without sending status", async () => {
     }),
   );
   expect(posted!).not.toHaveProperty("status");
+});
+
+test("edits a meet, pre-filled from the existing row, sending only the changed field", async () => {
+  seedDistricts();
+  server.use(
+    http.get(api("/meets/"), () =>
+      HttpResponse.json([
+        makeMeet({
+          id: 4,
+          name: "Spring Open",
+          location: "Cape Town",
+          start_date: "2026-09-01",
+          end_date: "2026-09-02",
+          district_id: null,
+          medal_gold_min: null,
+          medal_silver_min: null,
+        }),
+      ]),
+    ),
+  );
+  let patched: Record<string, unknown> | null = null;
+  server.use(
+    http.patch(api("/meets/:meetId"), async ({ request }) => {
+      patched = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(makeMeet({ id: 4, name: "Spring Open", location: "Durban" }));
+    }),
+  );
+  renderApp("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Edit Spring Open" }));
+  const dialog = within(screen.getByRole("dialog"));
+  expect(dialog.getByLabelText("Name")).toHaveValue("Spring Open");
+  await userEvent.clear(dialog.getByLabelText("Location"));
+  await userEvent.type(dialog.getByLabelText("Location"), "Durban");
+  await userEvent.click(dialog.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(patched).toEqual({ location: "Durban" }));
 });
 
 test("blocks an end date before the start date", async () => {

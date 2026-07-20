@@ -39,6 +39,8 @@ export function makeGymnast(overrides: Partial<GymnastRead> = {}): GymnastRead {
     last_name: "van der Merwe",
     date_of_birth: null,
     country_code: null,
+    ethnicity: null,
+    gsa_number: null,
     ...overrides,
   };
 }

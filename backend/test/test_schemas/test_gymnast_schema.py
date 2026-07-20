@@ -398,3 +398,53 @@ class TestGymnastReadSchema:
         }
         with pytest.raises(ValidationError):
             GymnastRead.model_validate(data)
+
+
+def test_gymnast_create_accepts_ethnicity_and_gsa_number():
+    from app.models import Ethnicity
+
+    schema = GymnastCreate(
+        first_name="Dina",
+        last_name="Averina",
+        ethnicity="coloured",
+        gsa_number="GSA-42",
+    )
+
+    assert schema.ethnicity is Ethnicity.coloured
+    assert schema.gsa_number == "GSA-42"
+
+
+def test_gymnast_create_defaults_new_fields_to_none():
+    schema = GymnastCreate(first_name="Dina", last_name="Averina")
+
+    assert schema.ethnicity is None
+    assert schema.gsa_number is None
+
+
+def test_gymnast_create_rejects_unknown_ethnicity():
+    with pytest.raises(ValidationError):
+        GymnastCreate(first_name="Dina", last_name="Averina", ethnicity="martian")
+
+
+def test_gymnast_create_blank_gsa_number_becomes_none():
+    schema = GymnastCreate(first_name="Dina", last_name="Averina", gsa_number="   ")
+
+    assert schema.gsa_number is None
+
+
+def test_gymnast_create_strips_gsa_number_whitespace():
+    schema = GymnastCreate(first_name="Dina", last_name="Averina", gsa_number="  GSA-7 ")
+
+    assert schema.gsa_number == "GSA-7"
+
+
+def test_gymnast_update_blank_gsa_number_becomes_none():
+    schema = GymnastUpdate(gsa_number="")
+
+    assert schema.gsa_number is None
+
+
+def test_gymnast_update_omits_untouched_new_fields():
+    schema = GymnastUpdate(first_name="Dina")
+
+    assert schema.model_dump(exclude_unset=True) == {"first_name": "Dina"}

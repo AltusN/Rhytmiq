@@ -11,8 +11,27 @@ from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.models import Ethnicity
 
-class GymnastCreate(BaseModel):
+
+class _GsaNumberNormalizer:
+    """
+    Shared by GymnastCreate and GymnastUpdate.
+
+    "" would otherwise be stored literally and collide with the next blank entry
+    under uq_gymnast_gsa_number, so empty input becomes NULL.
+    """
+
+    @field_validator("gsa_number", mode="before")
+    @classmethod
+    def normalize_gsa_number(cls, v: str | None) -> str | None:
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
+
+
+class GymnastCreate(_GsaNumberNormalizer, BaseModel):
     # Gymnast can be independent of a club, so club_id is optional
     club_id: int | None = Field(None, ge=1)
     group_id: int | None = Field(None, ge=1)
@@ -22,6 +41,11 @@ class GymnastCreate(BaseModel):
     date_of_birth: date | None = None
     # Country is optional an din the format of a 3-letter ISO 3166-1 alpha-3 country code
     country_code: str | None = None
+    # Optional demographic field; None means never asked, Ethnicity.prefer_not_to_say
+    # means asked and declined.
+    ethnicity: Ethnicity | None = None
+    # Optional Gymnastics SA membership number; unique when present.
+    gsa_number: str | None = Field(None, max_length=32)
 
     @field_validator("first_name", "last_name", mode="before")
     @classmethod
@@ -40,7 +64,7 @@ class GymnastCreate(BaseModel):
         return v
 
 
-class GymnastUpdate(BaseModel):
+class GymnastUpdate(_GsaNumberNormalizer, BaseModel):
     # Gymnast can be independent of a club, so club_id is optional
     club_id: int | None = Field(None, ge=1)
     group_id: int | None = Field(None, ge=1)
@@ -50,6 +74,11 @@ class GymnastUpdate(BaseModel):
     date_of_birth: date | None = None
     # Country is optional an din the format of a 3-letter ISO 3166-1 alpha-3 country code
     country_code: str | None = None
+    # Optional demographic field; None means never asked, Ethnicity.prefer_not_to_say
+    # means asked and declined.
+    ethnicity: Ethnicity | None = None
+    # Optional Gymnastics SA membership number; unique when present.
+    gsa_number: str | None = Field(None, max_length=32)
 
     @field_validator("first_name", "last_name", mode="before")
     @classmethod
@@ -78,3 +107,5 @@ class GymnastRead(BaseModel):
     last_name: str
     date_of_birth: date | None = None
     country_code: str | None = None
+    ethnicity: Ethnicity | None = None
+    gsa_number: str | None = None

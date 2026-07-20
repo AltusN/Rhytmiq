@@ -17,7 +17,7 @@ from datetime import date
 import pytest
 from sqlalchemy.exc import DataError, IntegrityError
 
-from app.models import Gymnast, Meet, MeetEntry, Routine
+from app.models import Ethnicity, Gymnast, Meet, MeetEntry, Routine
 from test.conftest import make_gymnast, make_meet, make_meet_entry, make_routine
 
 
@@ -240,3 +240,52 @@ def test_delete_gymnast_with_club(db_session):
     db_session.commit()
 
     assert db_session.query(Gymnast).filter_by(id=gymnast.id).first() is None
+
+
+@pytest.mark.parametrize("value", list(Ethnicity))
+def test_gymnast_accepts_every_ethnicity_value(db_session, value):
+    gymnast = Gymnast(
+        first_name="Ethni",
+        last_name=f"City{value.name}",
+        date_of_birth=date(2010, 1, 1),
+        ethnicity=value,
+    )
+    db_session.add(gymnast)
+    db_session.commit()
+
+    stored = db_session.query(Gymnast).filter_by(last_name=f"City{value.name}").one()
+    assert stored.ethnicity is value
+
+
+def test_gymnast_ethnicity_and_gsa_number_default_to_null(db_session):
+    gymnast = make_gymnast(db_session, first_name="Nulla", last_name="Fields")
+
+    assert gymnast.ethnicity is None
+    assert gymnast.gsa_number is None
+
+
+def test_gymnast_gsa_number_persists(db_session):
+    gymnast = make_gymnast(db_session, first_name="Member", last_name="One")
+    gymnast.gsa_number = "GSA-12345"
+    db_session.commit()
+
+    assert db_session.query(Gymnast).filter_by(gsa_number="GSA-12345").one().id == gymnast.id
+
+
+def test_gymnast_duplicate_gsa_number_raises_error(db_session):
+    make_gymnast(db_session, first_name="First", last_name="Holder")
+    db_session.query(Gymnast).filter_by(last_name="Holder").one().gsa_number = "GSA-999"
+    db_session.flush()
+
+    second = make_gymnast(db_session, first_name="Second", last_name="Holder")
+    second.gsa_number = "GSA-999"
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_gymnast_multiple_null_gsa_numbers_allowed(db_session):
+    make_gymnast(db_session, first_name="Anon", last_name="OneNull")
+    make_gymnast(db_session, first_name="Anon", last_name="TwoNull")
+    db_session.commit()
+
+    assert db_session.query(Gymnast).filter_by(gsa_number=None).count() >= 2

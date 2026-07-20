@@ -3634,6 +3634,18 @@
         "type": "object",
         "title": "DistrictUpdate"
       },
+      "Ethnicity": {
+        "type": "string",
+        "enum": [
+          "white",
+          "black",
+          "coloured",
+          "indian",
+          "prefer_not_to_say"
+        ],
+        "title": "Ethnicity",
+        "description": "South African statutory demographic categories, plus an explicit decline option.\n\nNULL and `prefer_not_to_say` are different states: NULL means the question was\nnever asked or the answer is unknown, `prefer_not_to_say` means the gymnast was\nasked and declined. Adding a value here later needs a hand-written\n`ALTER TYPE ethnicity ADD VALUE ...` migration -- autogenerate will not see it."
+      },
       "GroupCreate": {
         "properties": {
           "club_id": {
@@ -3757,6 +3769,28 @@
               }
             ],
             "title": "Country Code"
+          },
+          "ethnicity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Ethnicity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gsa_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gsa Number"
           }
         },
         "type": "object",
@@ -3824,6 +3858,27 @@
               }
             ],
             "title": "Country Code"
+          },
+          "ethnicity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Ethnicity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gsa_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gsa Number"
           }
         },
         "type": "object",
@@ -3908,6 +3963,28 @@
               }
             ],
             "title": "Country Code"
+          },
+          "ethnicity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Ethnicity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gsa_number": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gsa Number"
           }
         },
         "type": "object",

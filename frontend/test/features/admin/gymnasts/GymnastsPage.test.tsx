@@ -32,7 +32,7 @@ test("lists gymnasts with their club name", async () => {
 });
 
 test("shows an em dash for a gymnast with no club", async () => {
-  // dob and country are filled in so the club cell is the only em dash on the row.
+  // dob, country and GSA number are filled in so the club cell is the only em dash.
   mockBase([
     makeGymnast({
       id: 11,
@@ -41,6 +41,7 @@ test("shows an em dash for a gymnast with no club", async () => {
       club_id: null,
       date_of_birth: "2012-08-19",
       country_code: "RSA",
+      gsa_number: "GSA-311",
     }),
   ]);
   renderApp("/admin/gymnasts");
@@ -123,6 +124,8 @@ test("creates a gymnast, sending nulls for the fields left blank", async () => {
       group_id: null,
       date_of_birth: null,
       country_code: null,
+      ethnicity: null,
+      gsa_number: null,
     }),
   );
 });
@@ -375,6 +378,8 @@ test("clears the group when the club changes", async () => {
       group_id: null,
       date_of_birth: null,
       country_code: null,
+      ethnicity: null,
+      gsa_number: null,
     }),
   );
 });
@@ -545,4 +550,126 @@ test("edit: does not resurrect the ghost after a club round-trip back to the ori
 
   expect(within(group).queryByText(/\(other club\)/)).not.toBeInTheDocument();
   expect(screen.queryByText("Durban Seniors (other club)")).not.toBeInTheDocument();
+});
+
+test("submits ethnicity and GSA number when creating a gymnast", async () => {
+  mockBase([]);
+  let posted: Record<string, unknown> | null = null;
+  server.use(
+    http.post(api("/gymnasts/"), async ({ request }) => {
+      posted = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(makeGymnast({ id: 99 }), { status: 201 });
+    }),
+  );
+  renderApp("/admin/gymnasts");
+
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+  await userEvent.type(screen.getByLabelText("First name"), "Dina");
+  await userEvent.type(screen.getByLabelText("Last name"), "Averina");
+  await userEvent.selectOptions(screen.getByLabelText("Ethnicity"), "indian");
+  await userEvent.type(screen.getByLabelText("GSA number"), "GSA-1001");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() =>
+    expect(posted).toMatchObject({ ethnicity: "indian", gsa_number: "GSA-1001" }),
+  );
+});
+
+test("ethnicity defaults to a blank not-set option", async () => {
+  mockBase([]);
+  renderApp("/admin/gymnasts");
+
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+
+  const select = screen.getByLabelText("Ethnicity") as HTMLSelectElement;
+  expect(select.value).toBe("");
+  // 5 enum values + the blank "not set" option
+  expect(within(select).getAllByRole("option")).toHaveLength(6);
+});
+
+test("shows the GSA number column, with an em dash when unset", async () => {
+  mockBase([
+    makeGymnast({ id: 10, first_name: "Anna", last_name: "Botha", gsa_number: "GSA-500" }),
+  ]);
+  renderApp("/admin/gymnasts");
+
+  expect(
+    await screen.findByRole("columnheader", { name: "GSA number" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText("GSA-500")).toBeInTheDocument();
+});
+
+test("does not show ethnicity in the roster table", async () => {
+  mockBase([makeGymnast({ id: 10, first_name: "Anna", last_name: "Botha" })]);
+  renderApp("/admin/gymnasts");
+
+  await screen.findByRole("columnheader", { name: "GSA number" });
+  expect(
+    screen.queryByRole("columnheader", { name: /ethnicity/i }),
+  ).not.toBeInTheDocument();
+});
+
+test("edit prefills ethnicity and GSA number from the existing gymnast", async () => {
+  mockBase([
+    makeGymnast({
+      id: 10,
+      first_name: "Anna",
+      last_name: "Botha",
+      ethnicity: "indian",
+      gsa_number: "GSA-777",
+    }),
+  ]);
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "Edit Anna Botha" }));
+  expect((screen.getByLabelText("Ethnicity") as HTMLSelectElement).value).toBe("indian");
+  expect((screen.getByLabelText("GSA number") as HTMLInputElement).value).toBe("GSA-777");
+});
+
+test("edit: clearing ethnicity and GSA number sends explicit nulls", async () => {
+  mockBase([
+    makeGymnast({
+      id: 10,
+      first_name: "Anna",
+      last_name: "Botha",
+      ethnicity: "indian",
+      gsa_number: "GSA-777",
+    }),
+  ]);
+  let patched: Record<string, unknown> | null = null;
+  server.use(
+    http.patch(api("/gymnasts/:gymnastId"), async ({ request }) => {
+      patched = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(makeGymnast({ id: 10 }));
+    }),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "Edit Anna Botha" }));
+  await userEvent.selectOptions(screen.getByLabelText("Ethnicity"), "");
+  await userEvent.clear(screen.getByLabelText("GSA number"));
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(patched).toEqual({ ethnicity: null, gsa_number: null }));
+});
+
+test("edit: changing only ethnicity sends only that field in the PATCH body", async () => {
+  mockBase([
+    makeGymnast({
+      id: 10,
+      first_name: "Anna",
+      last_name: "Botha",
+      ethnicity: "indian",
+      gsa_number: "GSA-777",
+    }),
+  ]);
+  let patched: Record<string, unknown> | null = null;
+  server.use(
+    http.patch(api("/gymnasts/:gymnastId"), async ({ request }) => {
+      patched = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(makeGymnast({ id: 10 }));
+    }),
+  );
+  renderApp("/admin/gymnasts");
+  await userEvent.click(await screen.findByRole("button", { name: "Edit Anna Botha" }));
+  await userEvent.selectOptions(screen.getByLabelText("Ethnicity"), "black");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(patched).toEqual({ ethnicity: "black" }));
 });

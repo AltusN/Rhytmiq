@@ -514,3 +514,105 @@ def test_delete_gymnast_success(client, db_session):
 def test_delete_gymnast_not_found(client):
     response = client.delete("/gymnasts/9999")
     assert response.status_code == 404
+
+
+def test_create_gymnast_with_ethnicity_and_gsa_number(client, db_session):
+    response = client.post(
+        "/gymnasts",
+        json={
+            "first_name": "Dina",
+            "last_name": "Averina",
+            "date_of_birth": "2008-12-01",
+            "ethnicity": "indian",
+            "gsa_number": "GSA-1001",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["ethnicity"] == "indian"
+    assert body["gsa_number"] == "GSA-1001"
+
+
+def test_create_gymnast_without_new_fields_returns_nulls(client, db_session):
+    response = client.post(
+        "/gymnasts",
+        json={"first_name": "Dina", "last_name": "Averina", "date_of_birth": "2008-12-01"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["ethnicity"] is None
+    assert response.json()["gsa_number"] is None
+
+
+def test_create_gymnast_rejects_unknown_ethnicity(client, db_session):
+    response = client.post(
+        "/gymnasts",
+        json={"first_name": "Dina", "last_name": "Averina", "ethnicity": "martian"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_update_gymnast_ethnicity_and_gsa_number(client, db_session):
+    gymnast = make_gymnast(db_session, first_name="Patch", last_name="Target")
+
+    response = client.patch(
+        f"/gymnasts/{gymnast.id}",
+        json={"ethnicity": "prefer_not_to_say", "gsa_number": "GSA-2002"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ethnicity"] == "prefer_not_to_say"
+    assert body["gsa_number"] == "GSA-2002"
+
+
+def test_update_gymnast_can_clear_gsa_number(client, db_session):
+    gymnast = make_gymnast(db_session, first_name="Clear", last_name="Target")
+
+    response = client.patch(f"/gymnasts/{gymnast.id}", json={"gsa_number": ""})
+
+    assert response.status_code == 200
+    assert response.json()["gsa_number"] is None
+
+
+def test_create_gymnast_duplicate_gsa_number_returns_409(client, db_session):
+    first = client.post(
+        "/gymnasts",
+        json={"first_name": "Owner", "last_name": "OfNumber", "gsa_number": "GSA-DUP"},
+    )
+    assert first.status_code == 201
+
+    response = client.post(
+        "/gymnasts",
+        json={"first_name": "Other", "last_name": "Person", "gsa_number": "GSA-DUP"},
+    )
+
+    assert response.status_code == 409
+    assert "GSA" in response.json()["detail"]
+
+
+def test_update_gymnast_duplicate_gsa_number_returns_409(client, db_session):
+    # Stands alone: the router-test fixture shares one transaction per test, so a
+    # 409's db.rollback() here would undo any commits made earlier in the same test.
+    owner = client.post(
+        "/gymnasts",
+        json={"first_name": "Owner", "last_name": "OfNumber", "gsa_number": "GSA-PATCH-DUP"},
+    )
+    assert owner.status_code == 201
+
+    other = client.post(
+        "/gymnasts",
+        json={"first_name": "Other", "last_name": "Gymnast", "gsa_number": "GSA-OWN-2"},
+    )
+    assert other.status_code == 201
+    other_id = other.json()["id"]
+
+    response = client.patch(
+        f"/gymnasts/{other_id}",
+        json={"gsa_number": "GSA-PATCH-DUP"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A gymnast with GSA number 'GSA-PATCH-DUP' already exists"

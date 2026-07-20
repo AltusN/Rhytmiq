@@ -364,3 +364,18 @@ test("renders an em dash, not a link, when there is no music URL", async () => {
   expect(screen.queryByRole("link", { name: /music/i })).not.toBeInTheDocument();
   expect(within(screen.getByRole("table")).getByText("—")).toBeInTheDocument();
 });
+
+test("gives choreography notes room to write in", async () => {
+  // Shares fieldClass with the single-line inputs, so without an explicit rows it
+  // renders at the HTML default of 2 — a scrollbar after two lines, for a field the
+  // schema allows 500 characters in.
+  seedOwners();
+  server.use(
+    http.get(api("/routine-profiles/"), () =>
+      HttpResponse.json([makeRoutineProfile({ id: 1, gymnast_id: 1 })]),
+    ),
+  );
+  renderApp("/admin/routine-profiles");
+  await userEvent.click(await screen.findByRole("button", { name: /^Edit / }));
+  expect(screen.getByLabelText("Choreography notes")).toHaveAttribute("rows", "5");
+});

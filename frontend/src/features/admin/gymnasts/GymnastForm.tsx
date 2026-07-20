@@ -21,6 +21,8 @@ const gymnastSchema = z.object({
   group_id: z.string(),
   date_of_birth: z.string(),
   country_code: z.string().trim().max(3, "At most 3 characters"),
+  ethnicity: z.enum(["", "white", "black", "coloured", "indian", "prefer_not_to_say"]),
+  gsa_number: z.string().trim().max(32, "At most 32 characters"),
 });
 type GymnastFormValues = z.infer<typeof gymnastSchema>;
 
@@ -31,7 +33,19 @@ export type GymnastBody = {
   group_id?: number | null;
   date_of_birth?: string | null;
   country_code?: string | null;
+  ethnicity?: GymnastRead["ethnicity"];
+  gsa_number?: string | null;
 };
+
+/** Mirrors app.models.Ethnicity. "" means not set (NULL); prefer_not_to_say is a real
+ *  stored value meaning the gymnast was asked and declined. */
+const ETHNICITY_OPTIONS = [
+  { value: "white", label: "White" },
+  { value: "black", label: "Black" },
+  { value: "coloured", label: "Coloured" },
+  { value: "indian", label: "Indian" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+] as const;
 
 const toId = (v: string): number | null => (v === "" ? null : Number(v));
 const toText = (v: string): string | null => (v.trim() === "" ? null : v.trim());
@@ -62,6 +76,8 @@ export function GymnastForm({
       group_id: initial?.group_id?.toString() ?? "",
       date_of_birth: initial?.date_of_birth ?? "",
       country_code: initial?.country_code ?? "",
+      ethnicity: initial?.ethnicity ?? "",
+      gsa_number: initial?.gsa_number ?? "",
     },
   });
   const { dirtyFields, errors } = formState;
@@ -108,6 +124,8 @@ export function GymnastForm({
       group_id: toId(v.group_id),
       date_of_birth: toText(v.date_of_birth),
       country_code: toText(v.country_code),
+      ethnicity: v.ethnicity === "" ? null : v.ethnicity,
+      gsa_number: toText(v.gsa_number),
     };
     if (!initial) return full;
     // PATCH only what the user touched: an untouched nullable FK must not be
@@ -177,6 +195,24 @@ export function GymnastForm({
         />
         {errors.country_code && (
           <span className="text-xs text-red-700">{errors.country_code.message}</span>
+        )}
+      </label>
+      <label className="text-sm">
+        Ethnicity
+        <select {...register("ethnicity")} aria-label="Ethnicity" className={fieldClass}>
+          <option value="">— not set —</option>
+          {ETHNICITY_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="text-sm">
+        GSA number
+        <input {...register("gsa_number")} aria-label="GSA number" className={fieldClass} />
+        {errors.gsa_number && (
+          <span className="text-xs text-red-700">{errors.gsa_number.message}</span>
         )}
       </label>
       <div className="flex justify-end gap-2">

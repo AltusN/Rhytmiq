@@ -123,6 +123,8 @@ test("creates a gymnast, sending nulls for the fields left blank", async () => {
       group_id: null,
       date_of_birth: null,
       country_code: null,
+      ethnicity: null,
+      gsa_number: null,
     }),
   );
 });
@@ -375,6 +377,8 @@ test("clears the group when the club changes", async () => {
       group_id: null,
       date_of_birth: null,
       country_code: null,
+      ethnicity: null,
+      gsa_number: null,
     }),
   );
 });
@@ -545,4 +549,39 @@ test("edit: does not resurrect the ghost after a club round-trip back to the ori
 
   expect(within(group).queryByText(/\(other club\)/)).not.toBeInTheDocument();
   expect(screen.queryByText("Durban Seniors (other club)")).not.toBeInTheDocument();
+});
+
+test("submits ethnicity and GSA number when creating a gymnast", async () => {
+  mockBase([]);
+  let posted: Record<string, unknown> | null = null;
+  server.use(
+    http.post(api("/gymnasts/"), async ({ request }) => {
+      posted = (await request.json()) as Record<string, unknown>;
+      return HttpResponse.json(makeGymnast({ id: 99 }), { status: 201 });
+    }),
+  );
+  renderApp("/admin/gymnasts");
+
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+  await userEvent.type(screen.getByLabelText("First name"), "Dina");
+  await userEvent.type(screen.getByLabelText("Last name"), "Averina");
+  await userEvent.selectOptions(screen.getByLabelText("Ethnicity"), "indian");
+  await userEvent.type(screen.getByLabelText("GSA number"), "GSA-1001");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() =>
+    expect(posted).toMatchObject({ ethnicity: "indian", gsa_number: "GSA-1001" }),
+  );
+});
+
+test("ethnicity defaults to a blank not-set option", async () => {
+  mockBase([]);
+  renderApp("/admin/gymnasts");
+
+  await userEvent.click(await screen.findByRole("button", { name: "New gymnast" }));
+
+  const select = screen.getByLabelText("Ethnicity") as HTMLSelectElement;
+  expect(select.value).toBe("");
+  // 5 enum values + the blank "not set" option
+  expect(within(select).getAllByRole("option")).toHaveLength(6);
 });

@@ -791,6 +791,17 @@ export interface components {
             /** Abbreviation */
             abbreviation?: string | null;
         };
+        /**
+         * Ethnicity
+         * @description South African statutory demographic categories, plus an explicit decline option.
+         *
+         *     NULL and `prefer_not_to_say` are different states: NULL means the question was
+         *     never asked or the answer is unknown, `prefer_not_to_say` means the gymnast was
+         *     asked and declined. Adding a value here later needs a hand-written
+         *     `ALTER TYPE ethnicity ADD VALUE ...` migration -- autogenerate will not see it.
+         * @enum {string}
+         */
+        Ethnicity: "white" | "black" | "coloured" | "indian" | "prefer_not_to_say";
         /** GroupCreate */
         GroupCreate: {
             /** Club Id */
@@ -826,6 +837,9 @@ export interface components {
             date_of_birth?: string | null;
             /** Country Code */
             country_code?: string | null;
+            ethnicity?: components["schemas"]["Ethnicity"] | null;
+            /** Gsa Number */
+            gsa_number?: string | null;
         };
         /** GymnastRead */
         GymnastRead: {
@@ -843,6 +857,9 @@ export interface components {
             date_of_birth?: string | null;
             /** Country Code */
             country_code?: string | null;
+            ethnicity?: components["schemas"]["Ethnicity"] | null;
+            /** Gsa Number */
+            gsa_number?: string | null;
         };
         /** GymnastUpdate */
         GymnastUpdate: {
@@ -858,6 +875,9 @@ export interface components {
             date_of_birth?: string | null;
             /** Country Code */
             country_code?: string | null;
+            ethnicity?: components["schemas"]["Ethnicity"] | null;
+            /** Gsa Number */
+            gsa_number?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {

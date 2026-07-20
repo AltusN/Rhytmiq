@@ -81,7 +81,10 @@ export function RoutineProfileEditForm({
         <textarea
           {...register("choreography_notes")}
           aria-label="Choreography notes"
-          className={fieldClass}
+          rows={5}
+          // fieldClass is shared with the single-line inputs, so without an explicit
+          // rows this renders at the HTML default of 2 for a 500-character field.
+          className={`${fieldClass} resize-y`}
         />
         {errors.choreography_notes && (
           <span className="text-xs text-red-700">{errors.choreography_notes.message}</span>

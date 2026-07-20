@@ -6,8 +6,10 @@ docstring) and by app/models.py's Routine.penalty machinery indirectly via the
 routers that call into here.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
+from enum import StrEnum
 from typing import Literal
 
 from app.models import Level, MeetEntry, Panel, Routine
@@ -16,27 +18,99 @@ Medal = Literal["gold", "silver", "bronze"]
 
 TRIM_THRESHOLD = 4  # Minimum number of scores required to calculate trimmed mean
 
-# Levels 1-7 are scored on Execution only -- no Difficulty (D) or Artistry (A) panels
-# are judged at these levels. level_8 and above (level_8-10, high_performance_1-4,
-# pre_junior, junior, senior, olympic) receive the full D+A+E panel.
-E_ONLY_LEVELS = frozenset(
-    {
-        Level.level_1,
-        Level.level_2,
-        Level.level_3,
-        Level.level_4,
-        Level.level_5,
-        Level.level_6,
-        Level.level_7,
-    }
+
+class MedalMode(StrEnum):
+    """How a band decides who gets a medal (spec: "Two medal systems")."""
+
+    cutoff = "cutoff"  # levels 1-3: Meet.medal_gold_min/medal_silver_min, on the all-around
+    placement = "placement"  # levels 4+: the first three distinct RANKS
+
+
+@dataclass(frozen=True)
+class ScoringProfile:
+    """
+    Everything that varies between the three FIG scoring bands, in one place.
+
+    This rule is needed in at least five places (backend panel validity, backend math,
+    the frontend math mirror, the judge-slot panel UI, and the score form's box
+    layout). Specifying it once and deriving downward is deliberate: the previous
+    two-band rule was implemented independently in several of those places and drifted.
+
+    `judges_per_panel` is the expected panel size, used by the UI to lay out score
+    boxes and to decide which judge slots are required. It is not enforced at the API:
+    a routine with a missing mark is incomplete, not invalid.
+    """
+
+    band: str
+    panels: frozenset[Panel]
+    judges_per_panel: Mapping[Panel, int]
+    medal_mode: MedalMode
+    tie_break_on_execution: bool
+
+
+# Levels 1-3: the judges compute D+E on paper and hand the scorer one finished mark out
+# of 13. From the scorer's point of view there is exactly ONE judge, so nothing is
+# averaged -- the entered mark IS the routine's total.
+BAND_1_3 = ScoringProfile(
+    band="1-3",
+    panels=frozenset({Panel.final}),
+    judges_per_panel={Panel.final: 1},
+    medal_mode=MedalMode.cutoff,
+    tie_break_on_execution=False,
 )
+
+# Levels 4-7: two judges both score Difficulty of Body (there is no DA at this band)
+# and two score Execution. D is out of 3 (13 - 10) but is deliberately NOT tracked or
+# constrained -- a judge's D mark cannot exceed 3 in practice.
+BAND_4_7 = ScoringProfile(
+    band="4-7",
+    panels=frozenset({Panel.difficulty_body, Panel.execution}),
+    judges_per_panel={Panel.difficulty_body: 2, Panel.execution: 2},
+    medal_mode=MedalMode.placement,
+    tie_break_on_execution=False,
+)
+
+# Levels 8+: the full FIG panel. Note the deliberate asymmetry with 4-7 -- one DB judge
+# and one DA judge here, versus two DB judges there (confirmed 2026-07-20).
+BAND_8_PLUS = ScoringProfile(
+    band="8+",
+    panels=frozenset(
+        {Panel.difficulty_body, Panel.difficulty_apparatus, Panel.artistry, Panel.execution}
+    ),
+    judges_per_panel={
+        Panel.difficulty_body: 1,
+        Panel.difficulty_apparatus: 1,
+        Panel.artistry: 2,
+        Panel.execution: 4,
+    },
+    medal_mode=MedalMode.placement,
+    tie_break_on_execution=True,
+)
+
+_BAND_1_3_LEVELS = (Level.level_1, Level.level_2, Level.level_3)
+_BAND_4_7_LEVELS = (Level.level_4, Level.level_5, Level.level_6, Level.level_7)
+
+# Built exhaustively over Level rather than with a `.get(level, BAND_8_PLUS)` default:
+# a level added to the enum without a band assignment should fail loudly in the tests,
+# not silently acquire the full FIG panel.
+_PROFILE_BY_LEVEL: dict[Level, ScoringProfile] = {
+    **dict.fromkeys(_BAND_1_3_LEVELS, BAND_1_3),
+    **dict.fromkeys(_BAND_4_7_LEVELS, BAND_4_7),
+    **dict.fromkeys(
+        (level for level in Level if level not in (*_BAND_1_3_LEVELS, *_BAND_4_7_LEVELS)),
+        BAND_8_PLUS,
+    ),
+}
+
+
+def profile_for_level(level: Level) -> ScoringProfile:
+    """The scoring profile governing `level`. See ScoringProfile."""
+    return _PROFILE_BY_LEVEL[level]
 
 
 def is_panel_valid_for_level(level: Level, panel: Panel) -> bool:
     """Whether a judge score on `panel` is valid for a routine at `level`."""
-    if level in E_ONLY_LEVELS:
-        return panel == Panel.execution
-    return True
+    return panel in profile_for_level(level).panels
 
 
 def trimmed_mean(scores: list[Decimal]) -> Decimal:

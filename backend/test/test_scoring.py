@@ -15,12 +15,17 @@ import pytest
 
 from app.models import Level, Panel
 from app.scoring import (
+    BAND_1_3,
+    BAND_4_7,
+    BAND_8_PLUS,
     AllAroundStanding,
     ApparatusStanding,
+    MedalMode,
     RoutineScoreResult,
     compute_routine_score,
     is_panel_valid_for_level,
     medal_for_total,
+    profile_for_level,
     rank_all_around,
     rank_apparatus,
     trimmed_mean,
@@ -198,18 +203,64 @@ def test_compute_routine_score_d_score_is_not_capped_at_10():
     assert result.d_score == Decimal("18.20")
 
 
-@pytest.mark.parametrize("level", [Level.level_1, Level.level_7])
-@pytest.mark.parametrize("panel", list(Panel))
-def test_is_panel_valid_for_level_e_only_levels(level, panel):
-    assert is_panel_valid_for_level(level, panel) == (panel == Panel.execution)
-
-
 @pytest.mark.parametrize(
-    "level", [Level.level_8, Level.high_performance_1, Level.senior, Level.olympic]
+    "level, valid_panels",
+    [
+        (Level.level_1, {Panel.final}),
+        (Level.level_3, {Panel.final}),
+        (Level.level_4, {Panel.difficulty_body, Panel.execution}),
+        (Level.level_7, {Panel.difficulty_body, Panel.execution}),
+        (
+            Level.level_8,
+            {
+                Panel.difficulty_body,
+                Panel.difficulty_apparatus,
+                Panel.artistry,
+                Panel.execution,
+            },
+        ),
+        (
+            Level.senior,
+            {
+                Panel.difficulty_body,
+                Panel.difficulty_apparatus,
+                Panel.artistry,
+                Panel.execution,
+            },
+        ),
+    ],
 )
 @pytest.mark.parametrize("panel", list(Panel))
-def test_is_panel_valid_for_level_non_gated_levels(level, panel):
-    assert is_panel_valid_for_level(level, panel) is True
+def test_is_panel_valid_for_level(level, valid_panels, panel):
+    assert is_panel_valid_for_level(level, panel) == (panel in valid_panels)
+
+
+@pytest.mark.parametrize("level", list(Level))
+def test_every_level_has_a_scoring_profile(level):
+    # The map is built exhaustively rather than with a default, so a Level added to the
+    # enum without a band assignment fails here instead of silently scoring as 8+.
+    assert profile_for_level(level) in (BAND_1_3, BAND_4_7, BAND_8_PLUS)
+
+
+def test_band_profiles_match_the_spec():
+    assert BAND_1_3.medal_mode is MedalMode.cutoff
+    assert BAND_1_3.tie_break_on_execution is False
+    assert BAND_1_3.judges_per_panel == {Panel.final: 1}
+
+    assert BAND_4_7.medal_mode is MedalMode.placement
+    assert BAND_4_7.tie_break_on_execution is False
+    # Deliberate asymmetry (spec, confirmed 2026-07-20): TWO DB judges here, but one DB
+    # and one DA at 8+. Do not "fix" this into consistency.
+    assert BAND_4_7.judges_per_panel == {Panel.difficulty_body: 2, Panel.execution: 2}
+
+    assert BAND_8_PLUS.medal_mode is MedalMode.placement
+    assert BAND_8_PLUS.tie_break_on_execution is True
+    assert BAND_8_PLUS.judges_per_panel == {
+        Panel.difficulty_body: 1,
+        Panel.difficulty_apparatus: 1,
+        Panel.artistry: 2,
+        Panel.execution: 4,
+    }
 
 
 def _entry(routines):

@@ -2,7 +2,6 @@ import { describe, expect, it, test } from "vitest";
 import {
   computePreview,
   deductionToScore,
-  isEOnlyLevel,
   profileForLevel,
   scoreToDeduction,
   trimmedMean,
@@ -72,12 +71,12 @@ describe("E deduction round trip", () => {
   });
 });
 
-describe("isEOnlyLevel (deprecated shim, unchanged this task)", () => {
-  test("levels 1-7 are E-only, level_8+ are not", () => {
-    expect(isEOnlyLevel("level_1")).toBe(true);
-    expect(isEOnlyLevel("level_7")).toBe(true);
-    expect(isEOnlyLevel("level_8")).toBe(false);
-    expect(isEOnlyLevel("senior")).toBe(false);
+describe("band boundary at level_7/level_8", () => {
+  test("levels 1-7 fall below the 8+ band, level_8 and up are 8+", () => {
+    expect(profileForLevel("level_1").band).not.toBe("8+");
+    expect(profileForLevel("level_7").band).not.toBe("8+");
+    expect(profileForLevel("level_8").band).toBe("8+");
+    expect(profileForLevel("senior").band).toBe("8+");
   });
 });
 

@@ -65,16 +65,6 @@ export function profileForLevel(level: string): ScoringProfile {
   return PROFILE_BY_LEVEL[level] ?? BAND_8_PLUS;
 }
 
-/**
- * @deprecated Superseded by profileForLevel. A temporary shim so ScoreForm and
- * ScoringPage keep compiling while they are migrated to the band table; deleted once
- * they no longer call it. Preserves the old semantics exactly: levels 1-7 were the
- * "Execution only" set, which is every band below 8+.
- */
-export function isEOnlyLevel(level: string): boolean {
-  return profileForLevel(level).band !== "8+";
-}
-
 /** Guards against binary-float dust (10 - 0.05) reaching the 0.05-increment check. */
 function round2(value: number): number {
   return Math.round(value * 100) / 100;

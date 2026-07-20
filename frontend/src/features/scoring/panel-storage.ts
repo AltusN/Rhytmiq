@@ -6,18 +6,13 @@ import type { Band } from "../../lib/score-math";
  * unique on (routine, judge, panel)). Levels 4-7 instead have TWO body judges, DB1/DB2,
  * and no apparatus difficulty at all — the asymmetry is deliberate, see the spec.
  *
- * "A" is a DEPRECATED legacy slot: the 8+ band now has two artistry judges, A1/A2. It is
- * kept in the union (but out of PANEL_SLOTS and every band's slot list) purely so
- * ScoreForm.tsx (`panel.A`, its last remaining consumer) keeps compiling until Task 7
- * migrates its boxes to A1/A2; Task 8 then deletes this member. ScoringPage was already
- * migrated off "A". loadPanel migrates a stored legacy "A" to "A1".
+ * loadPanel migrates a stored legacy "A" (the 8+ band's old single artistry slot) to "A1".
  */
 export type PanelSlot =
   | "F"
   | "D"
   | "DB1"
   | "DB2"
-  | "A"
   | "A1"
   | "A2"
   | "E1"

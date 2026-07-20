@@ -282,14 +282,15 @@ test("panel footer shows full judge names and a hint offers setup for missing re
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
   await screen.findByLabelText("D-Body");
   expect(screen.getByText(/Naledi Dlamini/)).toBeInTheDocument();
-  // default panel { D: 1, E1: 2 }: A and E2 are required but unassigned
+  // default panel { D: 1, E1: 2 }: A1 and E2 are required but unassigned
   const hint = screen.getByRole("button", { name: "Assign judges…" });
   await userEvent.click(hint);
   expect(screen.getByRole("button", { name: "Save panel" })).toBeInTheDocument();
 });
 
 test("no hint when the minimum viable panel is assigned, even with E3/E4 empty", async () => {
-  savePanel(5, { D: 1, A: 1, E1: 2, E2: 1 });
+  // Senior falls back to the 8+ band, whose minimum viable panel is D, A1, E1, E2.
+  savePanel(5, { D: 1, A1: 1, E1: 2, E2: 1 });
   mockBase();
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
@@ -297,14 +298,30 @@ test("no hint when the minimum viable panel is assigned, even with E3/E4 empty",
   expect(screen.queryByRole("button", { name: "Assign judges…" })).toBeNull();
 });
 
-test("E-only levels do not warn about unassigned D/A slots", async () => {
-  savePanel(5, { E1: 2, E2: 1 });
-  const level5Entry = makeEntry({ id: 22, meet_id: 5, gymnast_id: 7, group_id: null, level: "level_5", bib_number: "13" });
-  mockBase({ entries: [level5Entry] });
+// Formerly "E-only levels do not warn about unassigned D/A slots", which asserted the
+// old two-band spec's premise (level_5 required only E1/E2). Under the level-banded
+// model level_5 is band 4-7 and requires DB1/DB2/E1/E2 -- there is no band that needs
+// only E1/E2 anymore. Replaced with the 1-3 band's actual minimum viable panel (the
+// single Final slot); the 4-7 band's own missing-slots case is covered by the next test.
+test("level 1-3 competitors need only the Final slot, not D/A/E3/E4", async () => {
+  savePanel(5, { F: 1 });
+  const level1Entry = makeEntry({ id: 22, meet_id: 5, gymnast_id: 7, group_id: null, level: "level_1", bib_number: "13" });
+  mockBase({ entries: [level1Entry] });
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /13 ·/ }));
   await screen.findByLabelText("E1");
   expect(screen.queryByRole("button", { name: "Assign judges…" })).toBeNull();
+});
+
+test("names the 4-7 band's own missing slots (DB2, E2), not D/A", async () => {
+  savePanel(5, { DB1: 1, E1: 2 });
+  const level5Entry = makeEntry({ id: 23, meet_id: 5, gymnast_id: 7, group_id: null, level: "level_5", bib_number: "14" });
+  mockBase({ entries: [level5Entry] });
+  renderApp("/meets/5/scoring");
+  await userEvent.click(await screen.findByRole("button", { name: /14 ·/ }));
+  await screen.findByLabelText("E1");
+  const warning = await screen.findByText(/Required judge slots unassigned/);
+  expect(warning).toHaveTextContent("Required judge slots unassigned: DB2, E2.");
 });
 
 test("switching competitors with unsaved edits prompts; declining keeps the form", async () => {
@@ -423,22 +440,24 @@ test("a failed routines query surfaces an error instead of hanging on Loading", 
   expect(screen.queryByText("Loading…")).toBeNull();
 });
 
-test("the unassigned warning says REQUIRED, and the panel line marks E3/E4 optional", async () => {
-  // beforeEach assigns only D and E1, so A and E2 are the outstanding REQUIRED slots.
-  // E3/E4 are optional extra Execution judges and must NOT appear in the warning --
-  // without the word "Required" that list reads as contradicting the panel summary
-  // below it, which lists all six slots.
+test("the unassigned warning says REQUIRED, and the panel summary still lists every band slot", async () => {
+  // beforeEach assigns only D and E1, so A1 and E2 are the outstanding REQUIRED slots
+  // for the (fallback 8+) band. E3/E4 and the second artistry judge are optional extras
+  // and must NOT appear in the warning -- without the word "Required" that list reads
+  // as contradicting the panel summary below it, which lists every 8+ slot regardless
+  // of whether it's required.
   mockBase();
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
 
   const warning = await screen.findByText(/Required judge slots unassigned/);
-  expect(warning).toHaveTextContent("Required judge slots unassigned: A, E2.");
+  expect(warning).toHaveTextContent("Required judge slots unassigned: A1, E2.");
   expect(warning).not.toHaveTextContent("E3");
   expect(warning).not.toHaveTextContent("E4");
 
-  expect(screen.getByText(/^Panel:/)).toHaveTextContent("E3 (optional)");
-  expect(screen.getByText(/^Panel:/)).toHaveTextContent("E4 (optional)");
+  const summary = screen.getByText(/^Panel:/);
+  expect(summary).toHaveTextContent("E3 = unassigned");
+  expect(summary).toHaveTextContent("E4 = unassigned");
 });
 
 test("a zero penalty renders unsigned, not as negative zero", async () => {

@@ -5,24 +5,27 @@ import { apiDetail, client, toNum } from "../../api/client";
 import type { Apparatus, MeetRead } from "../../api/types";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { isMeetLocked, labelize } from "../../lib/domain";
-import { isEOnlyLevel } from "../../lib/score-math";
+import { profileForLevel } from "../../lib/score-math";
 import { useCompetitorNames } from "../../lib/useCompetitorNames";
 import { CompetitorList } from "./CompetitorList";
 import { nextUnscored } from "./next-unscored";
 import {
   loadPanel,
   savePanel,
+  REQUIRED_SLOTS,
+  SLOTS_BY_BAND,
   type PanelAssignment,
   type PanelSlot,
 } from "./panel-storage";
 import { PanelSetupDialog } from "./PanelSetupDialog";
 import { ScoreForm } from "./ScoreForm";
 
-/** The minimum viable panel; E3/E4 legitimately stay empty on small panels. */
+/**
+ * The minimum viable panel for this competitor's band (see REQUIRED_SLOTS): E3/E4 and
+ * the second artistry judge legitimately stay empty on a small panel.
+ */
 function missingRequiredSlots(panel: PanelAssignment, level: string): PanelSlot[] {
-  const required: PanelSlot[] = isEOnlyLevel(level)
-    ? ["E1", "E2"]
-    : ["D", "A", "E1", "E2"];
+  const required = REQUIRED_SLOTS[profileForLevel(level).band];
   return required.filter((slot) => panel[slot] === undefined);
 }
 
@@ -263,11 +266,18 @@ export function ScoringPage() {
               onDirtyChange={setFormDirty}
             />
             <p className="mt-5 text-xs text-gray-500">
-              {/* E3/E4 are marked optional so this line does not read as contradicting
-                  the "Required judge slots unassigned" warning above, which lists fewer. */}
-              Panel: D = {slotLabel(panel.D)} · E1 = {slotLabel(panel.E1)} · E2 ={" "}
-              {slotLabel(panel.E2)} · E3 (optional) = {slotLabel(panel.E3)} · E4 (optional) ={" "}
-              {slotLabel(panel.E4)} · A = {slotLabel(panel.A)}{" "}
+              {/* Lists every slot this competitor's band uses (not just the required
+                  ones), so it doesn't read as contradicting the "Required judge slots
+                  unassigned" warning above, which lists fewer. */}
+              Panel:{" "}
+              {SLOTS_BY_BAND[profileForLevel(selectedEntry.level).band].map(
+                (slot, i) => (
+                  <span key={slot}>
+                    {i > 0 && " · "}
+                    {slot} = {slotLabel(panel[slot])}
+                  </span>
+                ),
+              )}{" "}
               <button
                 onClick={() => setPanelOpen(true)}
                 className="text-blue-700 underline"

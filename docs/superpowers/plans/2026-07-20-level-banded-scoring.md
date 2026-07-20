@@ -267,11 +267,13 @@ def test_is_panel_valid_for_level(level, valid_panels, panel):
     assert is_panel_valid_for_level(level, panel) == (panel in valid_panels)
 
 
-@pytest.mark.parametrize("level", list(Level))
-def test_every_level_has_a_scoring_profile(level):
-    # The map is built exhaustively rather than with a default, so a Level added to the
-    # enum without a band assignment fails here instead of silently scoring as 8+.
-    assert profile_for_level(level) in (BAND_1_3, BAND_4_7, BAND_8_PLUS)
+def test_every_level_is_explicitly_banded():
+    # Set equality, not per-level lookup: no band is built as the complement of the
+    # others, so a Level added to the enum without a band assignment is simply missing
+    # here and this fails -- which is the whole point of the map being explicit. A
+    # per-level `profile_for_level(level) in (...)` check cannot fail under a
+    # complement-built map, and would assert a tautology.
+    assert set(_PROFILE_BY_LEVEL) == set(Level)
 
 
 def test_band_profiles_match_the_spec():
@@ -396,18 +398,30 @@ BAND_8_PLUS = ScoringProfile(
 
 _BAND_1_3_LEVELS = (Level.level_1, Level.level_2, Level.level_3)
 _BAND_4_7_LEVELS = (Level.level_4, Level.level_5, Level.level_6, Level.level_7)
+_BAND_8_PLUS_LEVELS = (
+    Level.level_8,
+    Level.level_9,
+    Level.level_10,
+    Level.high_performance_1,
+    Level.high_performance_2,
+    Level.high_performance_3,
+    Level.high_performance_4,
+    Level.pre_junior,
+    Level.junior,
+    Level.senior,
+    Level.olympic,
+)
 
-# Built exhaustively over Level rather than with a `.get(level, BAND_8_PLUS)` default:
-# a level added to the enum without a band assignment should fail loudly in the tests,
-# not silently acquire the full FIG panel.
+# Every band is listed explicitly rather than one being the complement of the others.
+# A complement silently absorbs any Level added later, which is exactly the "new level
+# quietly acquires the full FIG panel" failure this map exists to prevent -- and it
+# makes the coverage test unfalsifiable. With three explicit tuples, an unbanded level
+# is simply absent: profile_for_level raises KeyError and the test fails.
+# (dict.fromkeys rather than a dict comprehension: ruff's C420 rejects the latter.)
 _PROFILE_BY_LEVEL: dict[Level, ScoringProfile] = {
-    **{level: BAND_1_3 for level in _BAND_1_3_LEVELS},
-    **{level: BAND_4_7 for level in _BAND_4_7_LEVELS},
-    **{
-        level: BAND_8_PLUS
-        for level in Level
-        if level not in (*_BAND_1_3_LEVELS, *_BAND_4_7_LEVELS)
-    },
+    **dict.fromkeys(_BAND_1_3_LEVELS, BAND_1_3),
+    **dict.fromkeys(_BAND_4_7_LEVELS, BAND_4_7),
+    **dict.fromkeys(_BAND_8_PLUS_LEVELS, BAND_8_PLUS),
 }
 
 

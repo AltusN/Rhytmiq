@@ -94,6 +94,23 @@ class PenaltyJudgeRole(StrEnum):
     responsible_judge = "responsible_judge"
 
 
+class Ethnicity(StrEnum):
+    """
+    South African statutory demographic categories, plus an explicit decline option.
+
+    NULL and `prefer_not_to_say` are different states: NULL means the question was
+    never asked or the answer is unknown, `prefer_not_to_say` means the gymnast was
+    asked and declined. Adding a value here later needs a hand-written
+    `ALTER TYPE ethnicity ADD VALUE ...` migration -- autogenerate will not see it.
+    """
+
+    white = "white"
+    black = "black"
+    coloured = "coloured"
+    indian = "indian"
+    prefer_not_to_say = "prefer_not_to_say"
+
+
 # Models
 class Judge(Base):
     """
@@ -335,6 +352,10 @@ class Gymnast(Base):
     individual-only competitor), and unaffiliated gymnasts (club_id NULL) are
     supported entirely. Identity is (first_name, last_name, date_of_birth) rather than
     an external ID, since FIG doesn't mandate one.
+
+    gsa_number is an optional Gymnastics SA membership number. It is unique when
+    present but does NOT replace uq_gymnast_identity -- many gymnasts have no GSA
+    number, and NULLs do not collide under a Postgres unique constraint.
     """
 
     __tablename__ = "gymnasts"
@@ -351,6 +372,8 @@ class Gymnast(Base):
     last_name: Mapped[str] = mapped_column(String, index=True, nullable=False)
     date_of_birth: Mapped[date_type | None] = mapped_column(Date)
     country_code: Mapped[str | None] = mapped_column(String(3), index=True)
+    ethnicity: Mapped[Ethnicity | None] = mapped_column(Enum(Ethnicity), nullable=True)
+    gsa_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     club: Mapped["Club | None"] = relationship("Club", back_populates="gymnasts")
     entries: Mapped[list["MeetEntry"]] = relationship(
@@ -362,6 +385,7 @@ class Gymnast(Base):
         CheckConstraint("length(first_name) > 2", name="ck_gymnast_first_name_nonempty"),
         CheckConstraint("date_of_birth <= current_date", name="ck_gymnast_date_of_birth_valid"),
         UniqueConstraint("first_name", "last_name", "date_of_birth", name="uq_gymnast_identity"),
+        UniqueConstraint("gsa_number", name="uq_gymnast_gsa_number"),
     )
 
 

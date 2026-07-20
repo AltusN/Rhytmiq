@@ -58,11 +58,15 @@ strings with a 422.
 
 ## Router
 
-`app/routers/gymnast.py` needs no handler changes. Create and update both build the ORM
-instance from `payload.model_dump(...)`, so new schema fields flow through
-automatically. The existing `try/except IntegrityError -> rollback + HTTPException(409)`
-wrapper turns a duplicate `gsa_number` into a 409 rather than a 500; this is covered by
-a test rather than assumed.
+Create and update both build the ORM instance from `payload.model_dump(...)`, so new
+schema fields flow through with no handler changes.
+
+The 409 path does need a change. Both `except IntegrityError` blocks currently hardcode
+the detail `"Gymnast with name '<first> <last>' already exists"`, which is now wrong for
+half the cases — a duplicate `gsa_number` raises `IntegrityError` too, and the frontend
+renders `detail` verbatim in its error banner. A `_conflict_detail(exc, payload)` helper
+inspects the error for `uq_gymnast_gsa_number` and reports whichever constraint actually
+fired. The DELETE handler's block is untouched: different message, no payload.
 
 ## Migration
 

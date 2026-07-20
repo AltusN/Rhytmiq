@@ -1579,12 +1579,20 @@ import type { Band } from "../../lib/score-math";
  * both D-Body and D-App (one judge, two marks, two panels — legal because JudgeScore is
  * unique on (routine, judge, panel)). Levels 4-7 instead have TWO body judges, DB1/DB2,
  * and no apparatus difficulty at all — the asymmetry is deliberate, see the spec.
+ *
+ * "A" is a DEPRECATED legacy slot: the 8+ band now has two artistry judges, A1/A2. It is
+ * kept in the union (but out of PANEL_SLOTS and every band's slot list) purely so
+ * ScoreForm.tsx (`panel.A`) and ScoringPage.tsx (`"A"` in its required list and its panel
+ * summary line) keep compiling until Tasks 7–8 migrate them. Task 8 deletes it, together
+ * with the isEOnlyLevel shim, once its last consumer is gone. loadPanel migrates a stored
+ * legacy "A" to "A1".
  */
 export type PanelSlot =
   | "F"
   | "D"
   | "DB1"
   | "DB2"
+  | "A"
   | "A1"
   | "A2"
   | "E1"
@@ -2391,82 +2399,29 @@ git commit -m "feat: make ScoreForm band-dependent and convert E deductions at t
 
 ---
 
-### Task 8: `ScoringPage` required slots per band
+### Task 8: Retire the two deprecated compatibility hooks
 
-This is also the task that retires the deprecated `isEOnlyLevel` shim, since `ScoringPage` is its last caller.
+> **Scope changed during execution.** `ScoringPage`'s required-slot check and panel-summary line were migrated to the band model in **Task 6**, because they are coupled to `panel-storage`'s slot vocabulary — the moment `loadPanel` emits `A1` instead of `A`, ScoringPage breaks at runtime, so the two had to move together. Task 8 is therefore reduced to deleting the two compatibility hooks that let Tasks 5–7 stay green: the `isEOnlyLevel` shim in `score-math.ts` and the legacy `"A"` member of `PanelSlot` in `panel-storage.ts`. By the time this task runs, **`ScoreForm` (Task 7) must be the last consumer of both, and Task 7 removes that last use** — so this task deletes definitions that already have zero callers.
 
 **Files:**
-- Modify: `frontend/src/features/scoring/ScoringPage.tsx:8`, `:22-27`
 - Modify: `frontend/src/lib/score-math.ts` (delete the `isEOnlyLevel` shim)
-- Test: `frontend/test/features/scoring/ScoringPage.test.tsx`
+- Modify: `frontend/src/features/scoring/panel-storage.ts` (delete the deprecated `"A"` member of `PanelSlot`)
 
 **Interfaces:**
-- Consumes: `profileForLevel` (Task 5), `REQUIRED_SLOTS` (Task 6).
-- Produces: `isEOnlyLevel` no longer exists.
+- Consumes: nothing new.
+- Produces: `isEOnlyLevel` no longer exists; `PanelSlot` no longer includes `"A"`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Confirm both hooks have zero remaining callers**
 
-Append to `frontend/test/features/scoring/ScoringPage.test.tsx`:
+Run `cd frontend && grep -rn 'isEOnlyLevel' src test` and `grep -rn 'panel\.A\b' src`. The
+only `isEOnlyLevel` hit must be its own definition in `score-math.ts`; there must be **no**
+`panel.A` hit anywhere in `src` (ScoreForm's boxes were migrated to `panel.A1`/`panel.A2` in
+Task 7, and ScoringPage in Task 6). If either grep shows a live caller, that task is
+unfinished — stop and report; do not delete a hook out from under a caller.
 
-```tsx
-it("warns about the band's own missing slots, not the 8+ ones", async () => {
-  // A panel with only F filled is complete for a level-1 competitor.
-  localStorage.setItem("rhythmiq.panel.1", JSON.stringify({ F: 3 }));
-  await renderScoringPageWithEntry({ level: "level_1" });
+- [ ] **Step 2: Delete the `isEOnlyLevel` shim**
 
-  expect(await screen.findByLabelText("Final")).toBeInTheDocument();
-  expect(screen.queryByText(/No judge assigned for/)).not.toBeInTheDocument();
-});
-
-it("names the 4-7 slots when they are missing", async () => {
-  localStorage.setItem("rhythmiq.panel.1", JSON.stringify({ DB1: 3, E1: 4 }));
-  await renderScoringPageWithEntry({ level: "level_5" });
-
-  expect(await screen.findByText(/DB2, E2/)).toBeInTheDocument();
-});
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `cd frontend && npm test -- --run test/features/scoring/ScoringPage.test.tsx`
-Expected: FAIL — the page still asks for `E1, E2` at level 1 (or fails to compile on the missing `isEOnlyLevel` import).
-
-- [ ] **Step 3: Derive the required slots from the band**
-
-In `frontend/src/features/scoring/ScoringPage.tsx`, replace the `isEOnlyLevel` import (line 8) with:
-
-```tsx
-import { profileForLevel } from "../../lib/score-math";
-```
-
-add `REQUIRED_SLOTS` to the `panel-storage` import:
-
-```tsx
-import {
-  loadPanel,
-  savePanel,
-  REQUIRED_SLOTS,
-  type PanelAssignment,
-  type PanelSlot,
-} from "./panel-storage";
-```
-
-and replace `missingRequiredSlots` (lines 21–27):
-
-```tsx
-/**
- * The minimum viable panel for this competitor's band (see REQUIRED_SLOTS): E3/E4 and
- * the second artistry judge legitimately stay empty on a small panel.
- */
-function missingRequiredSlots(panel: PanelAssignment, level: string): PanelSlot[] {
-  const required = REQUIRED_SLOTS[profileForLevel(level).band];
-  return required.filter((slot) => panel[slot] === undefined);
-}
-```
-
-- [ ] **Step 4: Delete the deprecated shim**
-
-`ScoringPage` was its last caller. Remove this block from `frontend/src/lib/score-math.ts`:
+Remove this block from `frontend/src/lib/score-math.ts`:
 
 ```ts
 /**
@@ -2480,18 +2435,25 @@ export function isEOnlyLevel(level: string): boolean {
 }
 ```
 
-Run `cd frontend && grep -rn "isEOnlyLevel" src test` first and confirm it returns nothing outside that block. If any caller remains, migrate it to `profileForLevel` rather than keeping the shim.
+- [ ] **Step 3: Delete the deprecated `"A"` slot alias**
 
-- [ ] **Step 5: Run the full frontend suite and typecheck**
+In `frontend/src/features/scoring/panel-storage.ts`, remove `"A"` from the `PanelSlot`
+union (the member marked deprecated, between `DB2` and `A1`) and trim its explanatory
+paragraph from the type's docstring. `loadPanel`'s legacy migration (reading a stored `"A"`
+into `A1`) stays — it reads an untyped JSON key, not a `PanelSlot`, so dropping `"A"` from
+the union does not affect it.
+
+- [ ] **Step 4: Run the full frontend suite and typecheck**
 
 Run: `cd frontend && npm test -- --run && npm run build`
-Expected: PASS on both. `npm run build` is the typecheck gate — with the shim gone it must report no reference to `isEOnlyLevel`.
+Expected: PASS on both. `npm run build` is the typecheck gate — with both compatibility
+hooks gone it must report no reference to `isEOnlyLevel` and no `"A"` member on `PanelSlot`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add frontend/src/features/scoring/ScoringPage.tsx frontend/src/lib/score-math.ts frontend/test/features/scoring/ScoringPage.test.tsx
-git commit -m "feat: require only the current band's judge slots on the scoring page"
+git add frontend/src/lib/score-math.ts frontend/src/features/scoring/panel-storage.ts
+git commit -m "chore: remove the isEOnlyLevel shim and legacy A panel slot"
 ```
 
 ---

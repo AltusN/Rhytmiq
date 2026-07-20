@@ -155,6 +155,7 @@ export function GymnastsPage() {
             { header: "Club", render: (g) => clubName(g.club_id) },
             { header: "Date of birth", render: (g) => g.date_of_birth ?? "—" },
             { header: "Country", render: (g) => g.country_code ?? "—" },
+            { header: "GSA number", render: (g) => g.gsa_number ?? "—" },
           ]}
           rowLabel={(g) => `${g.first_name} ${g.last_name}`}
           onEdit={(g) => {

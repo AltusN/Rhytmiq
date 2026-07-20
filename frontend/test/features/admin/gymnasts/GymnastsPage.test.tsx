@@ -32,7 +32,7 @@ test("lists gymnasts with their club name", async () => {
 });
 
 test("shows an em dash for a gymnast with no club", async () => {
-  // dob and country are filled in so the club cell is the only em dash on the row.
+  // dob, country and GSA number are filled in so the club cell is the only em dash.
   mockBase([
     makeGymnast({
       id: 11,
@@ -41,6 +41,7 @@ test("shows an em dash for a gymnast with no club", async () => {
       club_id: null,
       date_of_birth: "2012-08-19",
       country_code: "RSA",
+      gsa_number: "GSA-311",
     }),
   ]);
   renderApp("/admin/gymnasts");
@@ -584,4 +585,26 @@ test("ethnicity defaults to a blank not-set option", async () => {
   expect(select.value).toBe("");
   // 5 enum values + the blank "not set" option
   expect(within(select).getAllByRole("option")).toHaveLength(6);
+});
+
+test("shows the GSA number column, with an em dash when unset", async () => {
+  mockBase([
+    makeGymnast({ id: 10, first_name: "Anna", last_name: "Botha", gsa_number: "GSA-500" }),
+  ]);
+  renderApp("/admin/gymnasts");
+
+  expect(
+    await screen.findByRole("columnheader", { name: "GSA number" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText("GSA-500")).toBeInTheDocument();
+});
+
+test("does not show ethnicity in the roster table", async () => {
+  mockBase([makeGymnast({ id: 10, first_name: "Anna", last_name: "Botha" })]);
+  renderApp("/admin/gymnasts");
+
+  await screen.findByRole("columnheader", { name: "GSA number" });
+  expect(
+    screen.queryByRole("columnheader", { name: /ethnicity/i }),
+  ).not.toBeInTheDocument();
 });

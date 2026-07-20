@@ -108,6 +108,12 @@ class Panel(StrEnum):
     difficulty_apparatus = "difficulty_apparatus"
     execution = "execution"
     artistry = "artistry"
+    # Levels 1-3 only: the judges fold D and E together on paper and hand the scorer a
+    # single finished mark out of 13. This is neither an execution score nor a
+    # difficulty score, so it gets its own panel -- storing it as `execution` with the
+    # cap raised to 13 would weaken a real invariant (E is out of 10 at EVERY level)
+    # for the sake of a different quantity wearing E's name.
+    final = "final"
 
 
 class PenaltyJudgeRole(StrEnum):
@@ -182,7 +188,7 @@ class Judge(Base):
 class JudgeScore(Base):
     """
     One judge's score on one panel (difficulty_body/difficulty_apparatus/execution/
-    artistry, see Panel) for one routine. A routine can have at most one score per
+    artistry/final, see Panel) for one routine. A routine can have at most one score per
     (judge, panel) pair -- see uq_judge_score_routine_judge_panel -- but multiple
     judges commonly score the same panel, and their values are averaged/summed
     according to FIG rules elsewhere (app/scoring.py), not on this row.
@@ -210,7 +216,11 @@ class JudgeScore(Base):
         CheckConstraint("value >= 0", name="ck_judge_score_value_non_negative"),
         CheckConstraint("value % 0.05 = 0", name="ck_judge_score_value_increments"),
         CheckConstraint(
-            "panel IN ('difficulty_body', 'difficulty_apparatus') OR value <= 10",
+            "CASE panel "
+            "WHEN 'difficulty_body' THEN true "
+            "WHEN 'difficulty_apparatus' THEN true "
+            "WHEN 'final' THEN value <= 13 "
+            "ELSE value <= 10 END",
             name="ck_judge_score_panel_value_cap",
         ),
     )

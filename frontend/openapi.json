@@ -4751,7 +4751,8 @@
           "difficulty_body",
           "difficulty_apparatus",
           "execution",
-          "artistry"
+          "artistry",
+          "final"
         ],
         "title": "Panel"
       },

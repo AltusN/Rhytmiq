@@ -1151,7 +1151,7 @@ export interface components {
          * Panel
          * @enum {string}
          */
-        Panel: "difficulty_body" | "difficulty_apparatus" | "execution" | "artistry";
+        Panel: "difficulty_body" | "difficulty_apparatus" | "execution" | "artistry" | "final";
         /**
          * PenaltyJudgeRole
          * @enum {string}

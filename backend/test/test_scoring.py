@@ -76,8 +76,14 @@ def _mark(panel, value):
     return SimpleNamespace(panel=panel, value=Decimal(value))
 
 
-def _routine(marks, penalty="0"):
-    return SimpleNamespace(judge_scores=marks, penalty=Decimal(penalty))
+def _routine(marks, penalty="0", level=Level.senior):
+    # Defaults to a level-8+ band so the pre-existing full-FIG worked examples below
+    # keep exercising the (DB + DA) + A + E path unchanged.
+    return SimpleNamespace(
+        judge_scores=marks,
+        penalty=Decimal(penalty),
+        entry=SimpleNamespace(level=level),
+    )
 
 
 def test_compute_routine_score_with_no_marks_returns_zero_scores():
@@ -263,8 +269,8 @@ def test_band_profiles_match_the_spec():
     }
 
 
-def _entry(routines):
-    return SimpleNamespace(routines=routines)
+def _entry(routines, level=Level.senior):
+    return SimpleNamespace(routines=routines, level=level)
 
 
 def test_rank_apparatus_orders_by_total_descending():
@@ -404,3 +410,111 @@ def test_rank_all_around_shares_rank_on_full_tie():
 
 def test_rank_all_around_empty_input_returns_empty_list():
     assert rank_all_around([]) == []
+
+
+def test_compute_routine_score_level_1_3_records_the_final_mark():
+    # The application is not calculating a score at this band; it is recording one.
+    routine = _routine([_mark(Panel.final, "11.75")], level=Level.level_2)
+
+    result = compute_routine_score(routine)
+
+    assert result.final_score == Decimal("11.75")
+    assert result.total == Decimal("11.75")
+    assert result.d_score == Decimal("0")
+    assert result.a_score == Decimal("0")
+    assert result.e_score == Decimal("0")
+
+
+def test_compute_routine_score_level_1_3_subtracts_penalty():
+    routine = _routine([_mark(Panel.final, "12.00")], penalty="0.30", level=Level.level_3)
+
+    result = compute_routine_score(routine)
+
+    assert result.total == Decimal("11.70")
+
+
+def test_compute_routine_score_level_1_3_ignores_marks_on_other_panels():
+    # Stale/illegal marks (direct ORM writes bypass the API's panel gate) must not leak
+    # into a band-1-3 total.
+    routine = _routine(
+        [_mark(Panel.final, "10.00"), _mark(Panel.execution, "9.00")],
+        level=Level.level_1,
+    )
+
+    result = compute_routine_score(routine)
+
+    assert result.e_score == Decimal("0")
+    assert result.total == Decimal("10.00")
+
+
+def test_compute_routine_score_level_4_7_averages_the_two_db_marks():
+    # No DA exists at this band, so trimmed_mean([]) returns 0 and the shipped additive
+    # formula (DB + DA) already yields avg(DB1, DB2). Adding zero is a no-op.
+    routine = _routine(
+        [
+            _mark(Panel.difficulty_body, "2.40"),
+            _mark(Panel.difficulty_body, "2.60"),
+            _mark(Panel.execution, "8.50"),
+            _mark(Panel.execution, "8.70"),
+        ],
+        level=Level.level_5,
+    )
+
+    result = compute_routine_score(routine)
+
+    assert result.d_score == Decimal("2.50")
+    assert result.e_score == Decimal("8.60")
+    assert result.final_score == Decimal("0")
+    assert result.total == Decimal("11.10")
+
+
+def test_compute_routine_score_8_plus_is_unchanged_and_has_zero_final():
+    routine = _routine(
+        [
+            _mark(Panel.difficulty_body, "5.00"),
+            _mark(Panel.difficulty_apparatus, "3.00"),
+            _mark(Panel.artistry, "8.00"),
+            _mark(Panel.execution, "9.00"),
+        ]
+    )
+
+    result = compute_routine_score(routine)
+
+    assert result.final_score == Decimal("0")
+    assert result.total == Decimal("25.00")
+
+
+def test_rank_apparatus_breaks_ties_on_execution_at_level_8_plus():
+    lower_e = _routine([_mark(Panel.difficulty_body, "6.00"), _mark(Panel.execution, "8.00")])
+    higher_e = _routine([_mark(Panel.difficulty_body, "5.00"), _mark(Panel.execution, "9.00")])
+
+    standings = rank_apparatus([lower_e, higher_e])
+
+    assert [standing.routine for standing in standings] == [higher_e, lower_e]
+    assert [standing.rank for standing in standings] == [1, 2]
+
+
+def test_rank_apparatus_does_not_break_ties_on_execution_at_levels_4_7():
+    # Spec: no tie-breaks below level 8. Equal totals share a rank even when their
+    # Execution differs.
+    lower_e = _routine(
+        [_mark(Panel.difficulty_body, "3.00"), _mark(Panel.execution, "8.00")],
+        level=Level.level_5,
+    )
+    higher_e = _routine(
+        [_mark(Panel.difficulty_body, "2.00"), _mark(Panel.execution, "9.00")],
+        level=Level.level_5,
+    )
+
+    standings = rank_apparatus([lower_e, higher_e])
+
+    assert [standing.rank for standing in standings] == [1, 1]
+
+
+def test_rank_all_around_does_not_break_ties_on_execution_at_levels_1_3():
+    a = _entry([_routine([_mark(Panel.final, "12.00")], level=Level.level_1)], level=Level.level_1)
+    b = _entry([_routine([_mark(Panel.final, "12.00")], level=Level.level_1)], level=Level.level_1)
+
+    standings = rank_all_around([a, b])
+
+    assert [standing.rank for standing in standings] == [1, 1]

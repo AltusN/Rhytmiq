@@ -186,14 +186,22 @@ def test_get_standings_medal_null_without_configured_cutoffs(client, db_session)
 def test_get_standings_medal_tiers_from_configured_cutoffs(client, db_session):
     # gold_min/silver_min apply uniformly across the meet, independent of rank --
     # two different ranks can both land in "gold" here.
+    # Explicit level-8+ band: the default band-1-3 level only scores off Panel.final,
+    # so it would ignore these Execution-only marks entirely.
     meet = make_meet(db_session, medal_gold_min=Decimal("8.50"), medal_silver_min=Decimal("6.00"))
     gymnast_gold = make_gymnast(db_session, first_name="Top", last_name="Scorer")
     gymnast_also_gold = make_gymnast(db_session, first_name="Second", last_name="Scorer")
     gymnast_bronze = make_gymnast(db_session, first_name="Low", last_name="Scorer")
 
-    entry_gold = make_meet_entry(db_session, meet, gymnast=gymnast_gold, bib_number="101")
-    entry_also_gold = make_meet_entry(db_session, meet, gymnast=gymnast_also_gold, bib_number="102")
-    entry_bronze = make_meet_entry(db_session, meet, gymnast=gymnast_bronze, bib_number="103")
+    entry_gold = make_meet_entry(
+        db_session, meet, gymnast=gymnast_gold, level=Level.senior, bib_number="101"
+    )
+    entry_also_gold = make_meet_entry(
+        db_session, meet, gymnast=gymnast_also_gold, level=Level.senior, bib_number="102"
+    )
+    entry_bronze = make_meet_entry(
+        db_session, meet, gymnast=gymnast_bronze, level=Level.senior, bib_number="103"
+    )
 
     routine_gold = make_routine(db_session, entry_gold, apparatus=Apparatus.ball)
     routine_also_gold = make_routine(db_session, entry_also_gold, apparatus=Apparatus.ball)
@@ -283,12 +291,19 @@ def test_get_all_around_sums_across_apparatus_and_ranks(client, db_session):
 
 
 def test_get_all_around_execution_tiebreak_on_equal_totals(client, db_session):
+    # Explicit level-8+ band: this test's whole point is the Execution tie-break, which
+    # only applies at levels 8+ (see scoring._tie_break_key) -- the default band-1-3
+    # level would neither pick up these D/A/E marks nor tie-break on Execution at all.
     meet = make_meet(db_session)
     gymnast_lower_e = make_gymnast(db_session, first_name="Lower", last_name="Execution")
     gymnast_higher_e = make_gymnast(db_session, first_name="Higher", last_name="Execution")
 
-    entry_lower_e = make_meet_entry(db_session, meet, gymnast=gymnast_lower_e, bib_number="101")
-    entry_higher_e = make_meet_entry(db_session, meet, gymnast=gymnast_higher_e, bib_number="102")
+    entry_lower_e = make_meet_entry(
+        db_session, meet, gymnast=gymnast_lower_e, level=Level.senior, bib_number="101"
+    )
+    entry_higher_e = make_meet_entry(
+        db_session, meet, gymnast=gymnast_higher_e, level=Level.senior, bib_number="102"
+    )
 
     routine_lower_e = make_routine(db_session, entry_lower_e, apparatus=Apparatus.ball)
     routine_higher_e = make_routine(db_session, entry_higher_e, apparatus=Apparatus.ball)
@@ -359,12 +374,18 @@ def test_get_all_around_medal_null_without_configured_cutoffs(client, db_session
 def test_get_all_around_medal_tiers_from_configured_cutoffs(client, db_session):
     # gold_min/silver_min apply to the summed all-around total, not a single
     # apparatus's execution mark (which is capped at 10 per ck_judge_score_panel_value_cap).
+    # Explicit level-8+ band: the default band-1-3 level only scores off Panel.final,
+    # so it would ignore these Execution-only marks entirely.
     meet = make_meet(db_session, medal_gold_min=Decimal("16.00"), medal_silver_min=Decimal("10.00"))
     gymnast_silver = make_gymnast(db_session, first_name="Mid", last_name="Scorer")
     gymnast_bronze = make_gymnast(db_session, first_name="Low", last_name="Scorer")
 
-    entry_silver = make_meet_entry(db_session, meet, gymnast=gymnast_silver, bib_number="101")
-    entry_bronze = make_meet_entry(db_session, meet, gymnast=gymnast_bronze, bib_number="102")
+    entry_silver = make_meet_entry(
+        db_session, meet, gymnast=gymnast_silver, level=Level.senior, bib_number="101"
+    )
+    entry_bronze = make_meet_entry(
+        db_session, meet, gymnast=gymnast_bronze, level=Level.senior, bib_number="102"
+    )
 
     ball_silver = make_routine(db_session, entry_silver, apparatus=Apparatus.ball)
     hoop_silver = make_routine(db_session, entry_silver, apparatus=Apparatus.hoop)

@@ -20,7 +20,7 @@ Key differences from other routers:
 
 from decimal import Decimal
 
-from app.models import Apparatus, MeetStatus, Panel
+from app.models import Apparatus, Level, MeetStatus, Panel
 from test.conftest import (
     make_gymnast,
     make_judge,
@@ -31,10 +31,10 @@ from test.conftest import (
 )
 
 
-def _entry(db_session):
+def _entry(db_session, level=Level.level_3):
     meet = make_meet(db_session)
     gymnast = make_gymnast(db_session)
-    return make_meet_entry(db_session, meet, gymnast=gymnast)
+    return make_meet_entry(db_session, meet, gymnast=gymnast, level=level)
 
 
 ##-- POST /routines --##
@@ -208,7 +208,9 @@ def test_get_routine_score_no_marks_yet(client, db_session):
 
 
 def test_get_routine_score_composes_marks_and_penalty(client, db_session):
-    entry = _entry(db_session)
+    # Explicit level-8+ band: this test exercises the full D/A/E panel, which the
+    # default band-1-3 level (see _entry) no longer computes that way.
+    entry = _entry(db_session, level=Level.senior)
     routine = make_routine(db_session, entry, apparatus=Apparatus.hoop)
     routine.penalty = Decimal("0.30")
     db_session.flush()

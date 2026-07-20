@@ -153,26 +153,34 @@ class RoutineScoreResult:
     d_score: Decimal
     a_score: Decimal
     e_score: Decimal
+    final_score: Decimal
     penalty: Decimal
     total: Decimal
 
 
 def compute_routine_score(routine) -> RoutineScoreResult:
     """
-    Compute a routine's D/A/E scores and total from its raw JudgeScore marks.
+    Compute a routine's panel scores and total from its raw JudgeScore marks, according
+    to the scoring band of its entry's level (see ScoringProfile).
 
     Args:
         routine: A Routine ORM instance. Its `judge_scores` are grouped by panel and
-        reduced via `trimmed_mean`; a panel with no marks yet contributes 0.
+        reduced via `trimmed_mean`; a panel with no marks yet contributes 0. The band is
+        read from `routine.entry.level`.
 
     Returns:
         RoutineScoreResult: the per-panel scores, penalty, and total, each rounded to
         2 decimal places to match the Numeric(6, 2) DB columns.
 
-    Note: per FIG's Code of Points, D is the *sum* of two independently-judged
-    subgroups (difficulty_body + difficulty_apparatus), not a trimmed mean of a single
-    pool like artistry/execution -- each subgroup is reduced with the same trimmed_mean
-    as A/E, then the two results are added together.
+    Bands:
+    - Levels 1-3 are pre-aggregated: one `final` mark out of 13 IS the routine score,
+      less penalty. D/A/E are forced to 0 so a stale mark on another panel (direct ORM
+      writes bypass the API's panel gate) cannot leak into the total.
+    - Levels 4-7 and 8+ share one formula. Per FIG's Code of Points, D is the *sum* of
+      two independently-judged subgroups (difficulty_body + difficulty_apparatus), not a
+      trimmed mean of a single pool like artistry/execution. At 4-7 there is no DA, so
+      `trimmed_mean([])` returns 0 and the sum reduces to the required average of the
+      two DB marks -- adding zero is a no-op, which is why this band needs no branch.
     """
     by_panel: dict[Panel, list[Decimal]] = {panel: [] for panel in Panel}
     for judge_score in routine.judge_scores:
@@ -181,22 +189,36 @@ def compute_routine_score(routine) -> RoutineScoreResult:
     def rounded(values: list[Decimal]) -> Decimal:
         return trimmed_mean(values).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
+    def quantized(value: Decimal) -> Decimal:
+        return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    penalty = routine.penalty
+    profile = profile_for_level(routine.entry.level)
+
+    if profile is BAND_1_3:
+        final_score = rounded(by_panel[Panel.final])
+        return RoutineScoreResult(
+            d_score=Decimal("0.00"),
+            a_score=Decimal("0.00"),
+            e_score=Decimal("0.00"),
+            final_score=final_score,
+            penalty=penalty,
+            total=quantized(final_score - penalty),
+        )
+
     db_score = rounded(by_panel[Panel.difficulty_body])
     da_score = rounded(by_panel[Panel.difficulty_apparatus])
     d_score = db_score + da_score
     a_score = rounded(by_panel[Panel.artistry])
     e_score = rounded(by_panel[Panel.execution])
-    penalty = routine.penalty
-    total = (d_score + a_score + e_score - penalty).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
 
     return RoutineScoreResult(
         d_score=d_score,
         a_score=a_score,
         e_score=e_score,
+        final_score=Decimal("0.00"),
         penalty=penalty,
-        total=total,
+        total=quantized(d_score + a_score + e_score - penalty),
     )
 
 
@@ -255,19 +277,37 @@ def _assign_ranks(rows: list, key_fn) -> list[int]:
     return ranks
 
 
+def _tie_break_key(level: Level, e_value: Decimal) -> Decimal:
+    """
+    The Execution component of a sort key, zeroed for bands that do not tie-break.
+
+    Per FIG Technical Regulations, ties break on highest total Execution -- but only at
+    levels 8+ (spec: "Tie-breaking by band"). Returning 0 for the other bands makes
+    equal totals compare equal, so they share a rank via _assign_ranks. Computed per
+    row rather than per call so a caller that did not filter to a single level still
+    gets each row's own rule applied.
+    """
+    return e_value if profile_for_level(level).tie_break_on_execution else Decimal("0")
+
+
 def rank_apparatus(routines) -> list[ApparatusStanding]:
     """
     Rank routines within a single apparatus category (caller filters to one
     (meet, level, age_group, apparatus) slice first).
 
-    Per FIG Technical Regulations, ties are broken by total score first, then by highest
-    total Execution; a routine still tied on both shares its rank with the next
-    (competition ranking, see _assign_ranks).
+    Ties break by total score first, then -- at levels 8+ only -- by highest total
+    Execution. A routine still tied on both shares its rank with the next (competition
+    ranking, see _assign_ranks).
     """
     scored = [(routine, compute_routine_score(routine)) for routine in routines]
-    scored.sort(key=lambda pair: (pair[1].total, pair[1].e_score), reverse=True)
 
-    ranks = _assign_ranks(scored, key_fn=lambda pair: (pair[1].total, pair[1].e_score))
+    def sort_key(pair):
+        routine, score = pair
+        return (score.total, _tie_break_key(routine.entry.level, score.e_score))
+
+    scored.sort(key=sort_key, reverse=True)
+
+    ranks = _assign_ranks(scored, key_fn=sort_key)
     return [
         ApparatusStanding(rank=rank, routine=routine, score=score)
         for rank, (routine, score) in zip(ranks, scored, strict=True)
@@ -282,8 +322,8 @@ def rank_all_around(entries) -> list[AllAroundStanding]:
     A competitor with an incomplete apparatus set (e.g. injured mid-meet) is still ranked
     on their partial sum, not excluded -- `routines_counted` lets the caller surface that
     the total is partial, matching how compute_routine_score returns 0 for missing panels
-    rather than erroring. Same tie-break as rank_apparatus: total, then summed Execution,
-    then shared rank.
+    rather than erroring. Same tie-break as rank_apparatus: total, then summed Execution
+    at levels 8+ only, then shared rank.
     """
     summed = []
     for entry in entries:
@@ -292,9 +332,13 @@ def rank_all_around(entries) -> list[AllAroundStanding]:
         e_total = sum((result.e_score for result in results), Decimal("0"))
         summed.append((entry, total, e_total, len(results)))
 
-    summed.sort(key=lambda row: (row[1], row[2]), reverse=True)
+    def sort_key(row):
+        entry, total, e_total, _count = row
+        return (total, _tie_break_key(entry.level, e_total))
 
-    ranks = _assign_ranks(summed, key_fn=lambda row: (row[1], row[2]))
+    summed.sort(key=sort_key, reverse=True)
+
+    ranks = _assign_ranks(summed, key_fn=sort_key)
     return [
         AllAroundStanding(
             rank=rank, entry=entry, total=total, e_total=e_total, routines_counted=count

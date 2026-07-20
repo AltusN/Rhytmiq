@@ -2,6 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { savePanel } from "../../../src/features/scoring/panel-storage";
+import type { JudgeScoreRead, MeetEntryRead } from "../../../src/api/types";
 import {
   makeEntry,
   makeGymnast,
@@ -15,6 +16,62 @@ import { renderApp } from "../../utils";
 
 const gymnast = makeGymnast({ id: 7, first_name: "Aletta", last_name: "van der Merwe" });
 const seniorEntry = makeEntry({ id: 21, meet_id: 5, gymnast_id: 7, group_id: null, level: "senior", bib_number: "12" });
+
+/**
+ * Renders ScoringPage with one meet entry at `level`, a panel assignment in localStorage
+ * covering every slot across all three bands (so no box in the rewritten band-dependent
+ * layout renders disabled for lack of a judge), and — if `existingScores` is given — a
+ * routine pre-created so those scores load. Judge id 3 is deliberately used for E1 so the
+ * E-round-trip tests can assert on a judge id that isn't also D/DB1/A1/etc.
+ */
+async function renderScoringPageWithEntry({
+  level,
+  existingScores = [],
+}: {
+  level: MeetEntryRead["level"];
+  existingScores?: Pick<JudgeScoreRead, "id" | "judge_id" | "panel" | "value">[];
+}) {
+  savePanel(5, {
+    F: 1,
+    D: 1,
+    DB1: 1,
+    DB2: 2,
+    A1: 1,
+    A2: 2,
+    E1: 3,
+    E2: 1,
+    E3: 2,
+    E4: 1,
+  });
+  const entry = makeEntry({
+    id: 50,
+    meet_id: 5,
+    gymnast_id: 7,
+    group_id: null,
+    level,
+    bib_number: "50",
+  });
+  const routine = makeRoutine({ id: 95, entry_id: 50, apparatus: "hoop" });
+  mockBase({
+    entries: [entry],
+    routines: [routine],
+    scores: existingScores.map((s) => makeScore({ ...s, routine_id: routine.id })),
+  });
+  renderApp("/meets/5/scoring");
+  await userEvent.click(await screen.findByRole("button", { name: /50 ·/ }));
+}
+
+/** Installs a capturing POST /judge-scores/ handler; call the returned function to read the bodies posted so far. */
+function captureJudgeScorePosts() {
+  const posts: unknown[] = [];
+  server.use(
+    http.post(api("/judge-scores/"), async ({ request }) => {
+      posts.push(await request.json());
+      return HttpResponse.json(makeScore(), { status: 201 });
+    }),
+  );
+  return () => posts;
+}
 
 function mockBase({
   meet = makeMeet({ id: 5, status: "in_progress" }),
@@ -56,17 +113,18 @@ beforeEach(() => {
   savePanel(5, { D: 1, E1: 2 });
 });
 
-test("selecting a senior competitor shows all boxes; E-only level hides D and A", async () => {
+test("selecting a senior (8+) competitor shows the full panel; switching to level_5 (4-7) drops Artistry but keeps D-Body", async () => {
   const level5Entry = makeEntry({ id: 22, meet_id: 5, gymnast_id: 7, group_id: null, level: "level_5", bib_number: "13" });
   mockBase({ entries: [seniorEntry, level5Entry] });
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
-  expect(await screen.findByLabelText("D-Body")).toBeInTheDocument();
-  expect(screen.getByLabelText("Artistry")).toBeInTheDocument();
+  expect(await screen.findByLabelText("D-Body 1")).toBeInTheDocument();
+  expect(screen.getByLabelText("Artistry 1")).toBeInTheDocument();
   expect(screen.getByLabelText("E1")).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole("button", { name: /13 ·/ }));
-  await waitFor(() => expect(screen.queryByLabelText("D-Body")).toBeNull());
+  await waitFor(() => expect(screen.queryByLabelText("Artistry 1")).toBeNull());
+  expect(screen.getByLabelText("D-Body 1")).toBeInTheDocument();
   expect(screen.getByLabelText("E1")).toBeInTheDocument();
 });
 
@@ -86,7 +144,7 @@ test("save lazily creates the routine and posts scores", async () => {
   );
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
-  await userEvent.type(await screen.findByLabelText("D-Body"), "7.30");
+  await userEvent.type(await screen.findByLabelText("D-Body 1"), "7.30");
   await userEvent.type(screen.getByLabelText("E1"), "8.25");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(routinePosted).toEqual({ entry_id: 21, apparatus: "hoop" }));
@@ -114,7 +172,7 @@ test("a partial failure during lazy routine creation keeps the box error and val
   );
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
-  await userEvent.type(await screen.findByLabelText("D-Body"), "7.30");
+  await userEvent.type(await screen.findByLabelText("D-Body 1"), "7.30");
   await userEvent.type(screen.getByLabelText("E1"), "8.25");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByText("boom")).toBeInTheDocument();
@@ -150,15 +208,17 @@ test("unparseable input never renders NaN in the preview", async () => {
   expect(screen.queryByText(/NaN/)).toBeNull();
 });
 
-test("loaded scores and penalty render with two decimals", async () => {
+test("loaded scores and penalty render with two decimals; E1 loads as a deduction, not the stored score", async () => {
   const routine = makeRoutine({ id: 77, entry_id: 21, penalty: "0.30" });
   mockBase({
     routines: [routine],
+    // Stored execution score 8.40 -> load direction of the E round trip -> deduction
+    // 10 - 8.40 = 1.60 shown in the box.
     scores: [makeScore({ routine_id: 77, judge_id: 2, panel: "execution", value: "8.40" })],
   });
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
-  expect(await screen.findByLabelText("E1")).toHaveValue("8.40");
+  expect(await screen.findByLabelText("E1")).toHaveValue("1.60");
   expect(screen.getByLabelText("Penalty")).toHaveValue("0.30");
 });
 
@@ -167,14 +227,14 @@ test("unassigned slots render disabled boxes", async () => {
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
   expect(await screen.findByLabelText("E2")).toBeDisabled();
-  expect(screen.getByLabelText("Artistry")).toBeDisabled();
+  expect(screen.getByLabelText("Artistry 1")).toBeDisabled();
 });
 
 test("the first enabled box is focused when a competitor is picked", async () => {
   mockBase();
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
-  expect(await screen.findByLabelText("D-Body")).toHaveFocus();
+  expect(await screen.findByLabelText("D-Body 1")).toHaveFocus();
 });
 
 test("E-only levels focus E1 on mount", async () => {
@@ -190,7 +250,7 @@ test("a disabled first slot is skipped when focusing", async () => {
   mockBase();
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
-  expect(await screen.findByLabelText("D-Body")).toBeDisabled();
+  expect(await screen.findByLabelText("D-Body 1")).toBeDisabled();
   expect(screen.getByLabelText("E1")).toHaveFocus();
 });
 
@@ -238,7 +298,7 @@ test("the age-group filter reaches the API and clears the selection", async () =
   );
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
-  await screen.findByLabelText("D-Body");
+  await screen.findByLabelText("D-Body 1");
   await userEvent.selectOptions(screen.getByLabelText("Age group filter"), "o14");
   await waitFor(() => expect(seenAgeGroup).toBe("o14"));
   expect(await screen.findByText("Pick a competitor to score.")).toBeInTheDocument();
@@ -258,7 +318,7 @@ test("the apparatus select reaches the API and clears the selection", async () =
   );
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
-  await screen.findByLabelText("D-Body");
+  await screen.findByLabelText("D-Body 1");
   await userEvent.selectOptions(screen.getByLabelText("Apparatus"), "ribbon");
   await waitFor(() => expect(seenApparatus).toBe("ribbon"));
   expect(await screen.findByText("Pick a competitor to score.")).toBeInTheDocument();
@@ -280,7 +340,7 @@ test("panel footer shows full judge names and a hint offers setup for missing re
   mockBase();
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
-  await screen.findByLabelText("D-Body");
+  await screen.findByLabelText("D-Body 1");
   expect(screen.getByText(/Naledi Dlamini/)).toBeInTheDocument();
   // default panel { D: 1, E1: 2 }: A1 and E2 are required but unassigned
   const hint = screen.getByRole("button", { name: "Assign judges…" });
@@ -294,7 +354,7 @@ test("no hint when the minimum viable panel is assigned, even with E3/E4 empty",
   mockBase();
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /12 ·/ }));
-  await screen.findByLabelText("D-Body");
+  await screen.findByLabelText("D-Body 1");
   expect(screen.queryByRole("button", { name: "Assign judges…" })).toBeNull();
 });
 
@@ -309,7 +369,8 @@ test("level 1-3 competitors need only the Final slot, not D/A/E3/E4", async () =
   mockBase({ entries: [level1Entry] });
   renderApp("/meets/5/scoring");
   await userEvent.click(await screen.findByRole("button", { name: /13 ·/ }));
-  await screen.findByLabelText("E1");
+  // Band 1-3 renders only the Final box -- no E1 to wait on.
+  await screen.findByLabelText("Final");
   expect(screen.queryByRole("button", { name: "Assign judges…" })).toBeNull();
 });
 
@@ -468,4 +529,89 @@ test("a zero penalty renders unsigned, not as negative zero", async () => {
   const summary = await screen.findByText(/^Penalty:/);
   expect(summary).toHaveTextContent("Penalty: 0.00");
   expect(summary).not.toHaveTextContent("−0.00");
+});
+
+// --- Task 7: band-dependent boxes and the E deduction round trip ---
+
+it("shows one final box at levels 1-3", async () => {
+  await renderScoringPageWithEntry({ level: "level_1" });
+
+  expect(await screen.findByLabelText("Final")).toBeInTheDocument();
+  expect(screen.queryByLabelText("E1")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("D-Body 1")).not.toBeInTheDocument();
+});
+
+it("shows two D-Body boxes and two E boxes at levels 4-7", async () => {
+  await renderScoringPageWithEntry({ level: "level_5" });
+
+  expect(await screen.findByLabelText("D-Body 1")).toBeInTheDocument();
+  expect(screen.getByLabelText("D-Body 2")).toBeInTheDocument();
+  expect(screen.getByLabelText("E1")).toBeInTheDocument();
+  expect(screen.getByLabelText("E2")).toBeInTheDocument();
+  expect(screen.queryByLabelText("E3")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("D-App")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Artistry 1")).not.toBeInTheDocument();
+});
+
+it("shows the full panel at 8+", async () => {
+  await renderScoringPageWithEntry({ level: "level_8" });
+
+  expect(await screen.findByLabelText("D-Body 1")).toBeInTheDocument();
+  expect(screen.getByLabelText("D-App")).toBeInTheDocument();
+  expect(screen.getByLabelText("Artistry 1")).toBeInTheDocument();
+  expect(screen.getByLabelText("Artistry 2")).toBeInTheDocument();
+  expect(screen.getByLabelText("E4")).toBeInTheDocument();
+});
+
+it("saves an E deduction as an execution score", async () => {
+  const user = userEvent.setup();
+  const posted = captureJudgeScorePosts();
+  await renderScoringPageWithEntry({ level: "level_8" });
+
+  await user.type(await screen.findByLabelText("E1"), "1.50");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => expect(posted()).toHaveLength(1));
+  expect(posted()[0]).toMatchObject({ panel: "execution", value: "8.50" });
+});
+
+it("shows a stored execution score back as a deduction", async () => {
+  await renderScoringPageWithEntry({
+    level: "level_8",
+    existingScores: [{ id: 1, judge_id: 3, panel: "execution", value: "8.50" }],
+  });
+
+  expect(await screen.findByLabelText("E1")).toHaveValue("1.50");
+});
+
+it("saves a level 1-3 final mark as entered, without conversion", async () => {
+  const user = userEvent.setup();
+  const posted = captureJudgeScorePosts();
+  await renderScoringPageWithEntry({ level: "level_1" });
+
+  await user.type(await screen.findByLabelText("Final"), "11.50");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => expect(posted()).toHaveLength(1));
+  expect(posted()[0]).toMatchObject({ panel: "final", value: "11.50" });
+});
+
+it("rejects a deduction above 10", async () => {
+  const user = userEvent.setup();
+  await renderScoringPageWithEntry({ level: "level_8" });
+
+  await user.type(await screen.findByLabelText("E1"), "11");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  expect(await screen.findByText("Max 10")).toBeInTheDocument();
+});
+
+it("accepts a final mark up to 13", async () => {
+  const user = userEvent.setup();
+  await renderScoringPageWithEntry({ level: "level_1" });
+
+  await user.type(await screen.findByLabelText("Final"), "13.05");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  expect(await screen.findByText("Max 13")).toBeInTheDocument();
 });

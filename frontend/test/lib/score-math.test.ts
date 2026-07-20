@@ -72,33 +72,57 @@ describe("E deduction round trip", () => {
   });
 });
 
-describe("original score-math (unchanged this task)", () => {
+describe("isEOnlyLevel (deprecated shim, unchanged this task)", () => {
   test("levels 1-7 are E-only, level_8+ are not", () => {
     expect(isEOnlyLevel("level_1")).toBe(true);
     expect(isEOnlyLevel("level_7")).toBe(true);
     expect(isEOnlyLevel("level_8")).toBe(false);
     expect(isEOnlyLevel("senior")).toBe(false);
   });
+});
 
-  test("computePreview matches the v3 mockup worked example", () => {
-    const p = computePreview({
-      dBody: 7.3,
-      dApp: 6.9,
-      artistry: 8.9,
-      eScores: [8.25, 8.4, 8.1],
-      penalty: 0.1,
+describe("computePreview", () => {
+  it("records the final mark at levels 1-3", () => {
+    expect(computePreview({ band: "1-3", finalScore: 11.75 })).toEqual({
+      d: 0,
+      a: 0,
+      e: 0,
+      final: 11.75,
+      penalty: 0,
+      total: 11.75,
     });
-    expect(p.d).toBeCloseTo(14.2);
-    expect(p.a).toBeCloseTo(8.9);
-    expect(p.e).toBeCloseTo(8.25);
-    expect(p.total).toBeCloseTo(31.25);
   });
 
-  test("computePreview treats missing panels as 0", () => {
-    const p = computePreview({ eScores: [8.0, 7.9] });
-    expect(p.d).toBe(0);
-    expect(p.a).toBe(0);
-    expect(p.e).toBeCloseTo(7.95);
-    expect(p.total).toBeCloseTo(7.95);
+  it("subtracts penalty from the final mark at levels 1-3", () => {
+    expect(computePreview({ band: "1-3", finalScore: 12, penalty: 0.3 }).total).toBeCloseTo(
+      11.7,
+      10,
+    );
+  });
+
+  it("averages the two DB marks at levels 4-7", () => {
+    const preview = computePreview({
+      band: "4-7",
+      dBodyScores: [2.4, 2.6],
+      eScores: [8.5, 8.7],
+    });
+    expect(preview.d).toBeCloseTo(2.5, 10);
+    expect(preview.e).toBeCloseTo(8.6, 10);
+    expect(preview.final).toBe(0);
+    expect(preview.total).toBeCloseTo(11.1, 10);
+  });
+
+  it("sums DB and DA and trims E at 8+", () => {
+    const preview = computePreview({
+      band: "8+",
+      dBodyScores: [5],
+      dAppScores: [3],
+      artistryScores: [8, 8.5],
+      eScores: [8.5, 8.6, 8.7, 9.9],
+    });
+    expect(preview.d).toBeCloseTo(8, 10);
+    expect(preview.a).toBeCloseTo(8.25, 10);
+    expect(preview.e).toBeCloseTo(8.65, 10);
+    expect(preview.total).toBeCloseTo(24.9, 10);
   });
 });

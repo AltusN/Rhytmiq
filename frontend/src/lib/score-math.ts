@@ -108,11 +108,19 @@ export function trimmedMean(scores: number[]): number {
   return trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
 }
 
+/**
+ * Marks grouped by panel, exactly as compute_routine_score groups them — so that the
+ * two-DB-judges case at levels 4-7 and the four-E-judges case at 8+ reduce through the
+ * same code path on both sides. `eScores` are execution SCORES here, already converted
+ * from the form's deductions by the caller — computePreview does no conversion itself.
+ */
 export interface PreviewInput {
-  dBody?: number;
-  dApp?: number;
-  artistry?: number;
-  eScores: number[];
+  band: Band;
+  dBodyScores?: number[];
+  dAppScores?: number[];
+  artistryScores?: number[];
+  eScores?: number[];
+  finalScore?: number;
   penalty?: number;
 }
 
@@ -120,6 +128,7 @@ export interface ScorePreview {
   d: number;
   a: number;
   e: number;
+  final: number;
   penalty: number;
   total: number;
 }
@@ -130,9 +139,18 @@ export interface ScorePreview {
  * from the server's by ±0.01 in rare rounding cases. Never persist these numbers.
  */
 export function computePreview(input: PreviewInput): ScorePreview {
-  const d = (input.dBody ?? 0) + (input.dApp ?? 0);
-  const a = input.artistry ?? 0;
-  const e = trimmedMean(input.eScores);
   const penalty = input.penalty ?? 0;
-  return { d, a, e, penalty, total: d + a + e - penalty };
+
+  if (input.band === "1-3") {
+    // Pre-aggregated: the entered mark IS the routine's score, less penalty.
+    const final = input.finalScore ?? 0;
+    return { d: 0, a: 0, e: 0, final, penalty, total: final - penalty };
+  }
+
+  // At 4-7 there is no DA, so trimmedMean([]) is 0 and (DB + DA) reduces to the
+  // required average of the two DB marks — adding zero is a no-op, same as the backend.
+  const d = trimmedMean(input.dBodyScores ?? []) + trimmedMean(input.dAppScores ?? []);
+  const a = trimmedMean(input.artistryScores ?? []);
+  const e = trimmedMean(input.eScores ?? []);
+  return { d, a, e, final: 0, penalty, total: d + a + e - penalty };
 }

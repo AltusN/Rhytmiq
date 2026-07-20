@@ -5,7 +5,7 @@ import { makeRoutine } from "../../fixtures";
 import { api, server } from "../../msw/server";
 
 const boxes: BoxDef[] = [
-  { key: "dBody", panel: "difficulty_body", judgeId: 1 },
+  { key: "dBody1", panel: "difficulty_body", judgeId: 1 },
   { key: "e1", panel: "execution", judgeId: 2 },
 ];
 
@@ -31,7 +31,7 @@ test("creates the routine lazily, posts scores as Decimal strings, patches penal
     apparatus: "hoop",
     boxes,
     existing: [],
-    values: { dBody: 7.3, e1: 8.25 },
+    values: { dBody1: 7.3, e1: 8.25 },
     penalty: 0.1,
     currentPenalty: 0,
   });
@@ -56,7 +56,7 @@ test("a failing routine create reports a form-level error, not a box error", asy
     apparatus: "hoop",
     boxes,
     existing: [],
-    values: { dBody: 7.3 },
+    values: { dBody1: 7.3 },
     penalty: 0,
     currentPenalty: 0,
   });
@@ -83,7 +83,7 @@ test("a failing box reports its error while others succeed", async () => {
     apparatus: "hoop",
     boxes,
     existing: [],
-    values: { dBody: 7.3, e1: 8.25 },
+    values: { dBody1: 7.3, e1: 8.25 },
     penalty: undefined,
     currentPenalty: 0,
   });

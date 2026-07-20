@@ -1,6 +1,16 @@
 import type { Panel } from "../../api/types";
 
-export type BoxKey = "dBody" | "dApp" | "a" | "e1" | "e2" | "e3" | "e4";
+export type BoxKey =
+  | "final"
+  | "dBody1"
+  | "dBody2"
+  | "dApp"
+  | "a1"
+  | "a2"
+  | "e1"
+  | "e2"
+  | "e3"
+  | "e4";
 
 export interface BoxDef {
   key: BoxKey;

@@ -1,7 +1,7 @@
 # Level-banded scoring — design
 
 **Date:** 2026-07-20
-**Status:** design agreed, three questions open (see end)
+**Status:** design agreed and complete — no open questions
 **Supersedes:** the `E_ONLY_LEVELS` rule shipped in `app/scoring.py`
 
 ## Why
@@ -19,20 +19,26 @@ rejects a Difficulty mark at level 4, which the new rules require.
 
 | Band | Scorer enters | Computation | Max per routine |
 |---|---|---|---|
-| **1–3** | one final mark per judge (D already folded in by the judge) | `average(final marks)` | **13** |
+| **1–3** | **one** final mark, from a single judge | recorded as entered | **13** |
 | **4–7** | DB1, DB2 + E1, E2 | `average(DB) + E` | **13** |
 | **8+** | DB, DA, A1, A2, E1–E4 | `(DB + DA) + average(A) + trimmedMean(E)` | FIG open |
 
 Penalty is subtracted from the total in every band.
 
-Execution is **always out of 10**, at every level. Difficulty at levels 4–7 is
-assumed out of 3 (13 − 10) — *open question 1*.
+Execution is **always out of 10**, at every level. Difficulty at levels 4–7 is out
+of 3 (13 − 10), but **nothing tracks or enforces that** — a judge's D mark cannot
+exceed 3 in practice, so no cap is added. `ck_judge_score_panel_value_cap` continues
+to leave the D panels uncapped.
 
 ### Levels 1–3 are pre-aggregated, not E-only
 
 The judges compute D+E on paper and hand the scorer a single finished number out
-of 13. The application is not calculating a score at this band; it is recording
-one. This is why the band cannot be modelled as "E-only".
+of 13. The application is not calculating a score at this band; it is recording one.
+This is why the band cannot be modelled as "E-only".
+
+**From the scorer's point of view there is exactly one judge** at this band, so there
+is nothing to average — the entered mark *is* the routine's total. One box, one
+`JudgeScore` row on `Panel.final`.
 
 ### Levels 4–7 keep the existing additive D formula unchanged
 
@@ -86,6 +92,35 @@ one place at the form boundary, **not** in the per-band scoring profile.
 `JudgeScore.value` stores the **resulting E score**, not the deduction. The form
 accepts a deduction and converts before persisting.
 
+### The E round trip — explicit contract
+
+**The API only ever speaks execution scores. The form only ever speaks deductions.**
+Nothing between them needs to know the difference. The conversion is symmetric and
+lives entirely at the form boundary:
+
+| Direction | Conversion |
+|---|---|
+| **Save** (form → API) | `value = 10 − deduction` |
+| **Load** (API → form) | `deduction = 10 − value` |
+
+Both directions are required. Loading without the inverse would show a judge `8.50`
+in the box where they typed `1.50`.
+
+Consequences:
+
+- The round trip is lossless: `10 − (10 − d) = d` exactly in `Decimal`, and if `d`
+  sits on a 0.05 increment so does `10 − d`, satisfying
+  `ck_judge_score_value_increments`.
+- **A deduction must be within 0–10.** `ck_judge_score_value_non_negative` plus the
+  `<= 10` E cap already bound the stored score; the form must bound the deduction to
+  the same range or it will submit a value the DB rejects. Validate in the form, not
+  only at the API.
+- **The form's own summary line shows the E *score*, not the deduction total** — it
+  feeds the total, and the total is what the scorer is checking.
+- Standings and results are unaffected: `e_score` is and remains a score.
+- **Levels 1–3 are not deductions.** That band's single final mark is a straight
+  score out of 13 and is stored as entered, with no conversion in either direction.
+
 **Why:** ranking breaks ties on highest E (`scoring.py:182`, per FIG Technical
 Regulations). Storing raw deductions would invert that — highest deduction is the
 *worst* execution — and would silently reverse tied competitors. Converting at entry
@@ -114,12 +149,13 @@ enum and bands change on FIG's cycle, not weekly.
 
 ## Ranking and medals
 
-### No tie-breaking at levels 1–7
+### Tie-breaking by band
 
-Ties are not broken at these bands. Tied competitors share a rank. The E-based
-tie-break stays for level 8+ only.
-
-At levels 1–3 there is no separable E to break on anyway.
+| Band | Tie-break |
+|---|---|
+| 1–3 | **None.** No separable E to break on anyway. |
+| 4–7 | **None.** Tied competitors share a rank. |
+| 8+ | **Highest E**, as shipped (`scoring.py:182`, FIG Technical Regulations). |
 
 ### Two medal systems
 
@@ -127,15 +163,29 @@ At levels 1–3 there is no separable E to break on anyway.
   to the **final all-around result**, not a single routine. Levels 1–3 compete on
   **2 apparatus**, so the all-around max is **26** (13 + 13) and a gold cutoff around
   24 is normal. The existing `medal_for_total` already implements this.
-- **Levels 4–7: placement.** No cutoffs. Medals go to the first three **distinct
-  total values**, and ties share a medal:
-  - two tied at top → gold, gold; next distinct → silver; next distinct → bronze
-  - one winner, two tied second → gold; silver, silver; then 4th → bronze
+- **Levels 4–7 and 8+: placement.** No cutoffs.
 
-**Ranks are unchanged** — competition ranking (1,2,2,4) stays as documented in
-CLAUDE.md. Medal assignment is a **separate pass over distinct totals**, not a lookup
-of `rank <= 3`. Implementing it as `rank <= 3` would deny bronze to the 4th-place
-gymnast in the second example above.
+### The placement rule: first three distinct *ranks*
+
+Medals go to the competitors holding the **first three distinct rank values**, and
+anyone sharing a rank shares its medal.
+
+Worked from Altus's own examples, with competition ranking (1,2,2,4) unchanged:
+
+| Situation | Ranks | Distinct | Medals |
+|---|---|---|---|
+| Two tied at top | 1, 1, 3, 4 | 1, 3, 4 | gold, gold / silver / bronze |
+| One winner, two tied second | 1, 2, 2, 4 | 1, 2, 4 | gold / silver, silver / bronze |
+
+**Expressed over ranks rather than totals on purpose.** "First three distinct totals"
+gives the same answer where no tie-break applies, but breaks at level 8+ where the
+E tie-break separates equal totals into different ranks. Ranks compose with
+tie-breaking; totals fight it.
+
+**Ranks themselves are unchanged** — competition ranking (1,2,2,4) stays as
+documented in CLAUDE.md. Medal assignment is a **separate pass**, not a lookup of
+`rank <= 3`, which would deny bronze to the 4th-place gymnast in the second row
+above.
 
 ## What does not change
 
@@ -161,12 +211,13 @@ gymnast in the second example above.
    stops varying invisibly with who turned up.
 5. **`ScoreForm` box layout** becomes band-dependent (1 box / 4 boxes / 8 boxes).
 
-## Open questions
+## Questions resolved during design (all 2026-07-20)
 
-1. **Is D at levels 4–7 out of 3?** Inferred from 13 − 10, not confirmed.
-2. **How many judges submit a final mark at levels 1–3** — one, or several averaged?
-3. **Do levels 8+ use placement medals, cutoffs, or neither?** Only 1–3 (cutoffs) and
-   4–7 (placement) have been specified.
-
-**Answered 2026-07-20:** the E panel always receives deductions, at every level, and
-they are converted to a score at entry (was open question 2).
+- **E is always deductions**, at every level, converted to a score at entry — and
+  converted back to a deduction on load. See the round-trip contract above.
+- **D at levels 4–7 is out of 3**, but is deliberately *not* tracked or constrained:
+  a judge mark cannot exceed 3 in practice.
+- **Levels 1–3 have one judge** from the scorer's point of view — a single mark, not
+  an average.
+- **Levels 8+ use placement medals and keep the E tie-break.** Cutoffs are levels 1–3
+  only.

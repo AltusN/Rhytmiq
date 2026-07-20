@@ -1255,10 +1255,12 @@ git commit -m "feat: award placement medals at levels 4+ and keep cutoffs for 1-
 
 ### Task 5: Frontend score-math mirror
 
-`score-math.ts` mirrors `scoring.py`. This task ports the band table, adds the E deduction conversion helpers, and reshapes `computePreview` to group marks by panel exactly as the backend does.
+`score-math.ts` mirrors `scoring.py`. This task ports the band table and adds the E deduction conversion helpers.
+
+**`computePreview` is deliberately NOT changed in this task.** It is consumed only by `ScoreForm.tsx`, whose box layout is rewritten in Task 7; the new grouped-by-panel signature depends on boxes that do not exist until then, so it moves to Task 7 (Step 0) alongside that rewrite. Leaving it on its current signature here is what keeps this commit's `npm run build` green. Do not touch `computePreview`, `PreviewInput`, or `ScorePreview`.
 
 **Files:**
-- Modify: `frontend/src/lib/score-math.ts` (whole file)
+- Modify: `frontend/src/lib/score-math.ts` (add the band table + conversions; leave `computePreview` and its interfaces as they are)
 - Test: `frontend/test/lib/score-math.test.ts`
 
 **Interfaces:**
@@ -1269,12 +1271,11 @@ git commit -m "feat: award placement medals at levels 4+ and keep cutoffs for 1-
   - `interface ScoringProfile { band: Band; panels: readonly string[]; medalMode: MedalMode; tieBreakOnExecution: boolean }`
   - `profileForLevel(level: string): ScoringProfile`
   - `E_MAX = 10`, `deductionToScore(deduction: number): number`, `scoreToDeduction(score: number): number`
-  - `interface PreviewInput { band: Band; dBodyScores?: number[]; dAppScores?: number[]; artistryScores?: number[]; eScores?: number[]; finalScore?: number; penalty?: number }`
-  - `interface ScorePreview { d: number; a: number; e: number; final: number; penalty: number; total: number }`
-  - `computePreview(input: PreviewInput): ScorePreview`
   - `isEOnlyLevel(level: string): boolean` — kept as a **deprecated shim** over the new
     table so `ScoreForm`/`ScoringPage` keep compiling until Tasks 7–8 stop calling it.
     Task 8 deletes it. Every commit in Tasks 5–8 must pass `npm run build`.
+  - `computePreview` / `PreviewInput` / `ScorePreview` — **unchanged**; the band-aware
+    signature lands in Task 7.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1353,53 +1354,9 @@ describe("E deduction round trip", () => {
     }
   });
 });
-
-describe("computePreview", () => {
-  it("records the final mark at levels 1-3", () => {
-    expect(computePreview({ band: "1-3", finalScore: 11.75 })).toEqual({
-      d: 0,
-      a: 0,
-      e: 0,
-      final: 11.75,
-      penalty: 0,
-      total: 11.75,
-    });
-  });
-
-  it("subtracts penalty from the final mark at levels 1-3", () => {
-    expect(computePreview({ band: "1-3", finalScore: 12, penalty: 0.3 }).total).toBeCloseTo(
-      11.7,
-      10,
-    );
-  });
-
-  it("averages the two DB marks at levels 4-7", () => {
-    const preview = computePreview({
-      band: "4-7",
-      dBodyScores: [2.4, 2.6],
-      eScores: [8.5, 8.7],
-    });
-    expect(preview.d).toBeCloseTo(2.5, 10);
-    expect(preview.e).toBeCloseTo(8.6, 10);
-    expect(preview.final).toBe(0);
-    expect(preview.total).toBeCloseTo(11.1, 10);
-  });
-
-  it("sums DB and DA and trims E at 8+", () => {
-    const preview = computePreview({
-      band: "8+",
-      dBodyScores: [5],
-      dAppScores: [3],
-      artistryScores: [8, 8.5],
-      eScores: [8.5, 8.6, 8.7, 9.9],
-    });
-    expect(preview.d).toBeCloseTo(8, 10);
-    expect(preview.a).toBeCloseTo(8.25, 10);
-    expect(preview.e).toBeCloseTo(8.65, 10);
-    expect(preview.total).toBeCloseTo(24.9, 10);
-  });
-});
 ```
+
+(The `computePreview` band tests are deliberately NOT here — `computePreview` is unchanged in this task and its band-aware tests land in Task 7. Drop `computePreview` from the import line above if your test file would otherwise import an unused symbol; the imports needed here are `deductionToScore`, `profileForLevel`, `scoreToDeduction`, and `trimmedMean`.)
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -1520,54 +1477,9 @@ export function trimmedMean(scores: number[]): number {
   const trimmed = [...scores].sort((a, b) => a - b).slice(1, -1);
   return trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
 }
-
-/**
- * Marks grouped by panel, exactly as compute_routine_score groups them — so that the
- * two-DB-judges case at levels 4-7 and the four-E-judges case at 8+ reduce through the
- * same code path on both sides. `eScores` are execution SCORES here, already converted
- * from the form's deductions.
- */
-export interface PreviewInput {
-  band: Band;
-  dBodyScores?: number[];
-  dAppScores?: number[];
-  artistryScores?: number[];
-  eScores?: number[];
-  finalScore?: number;
-  penalty?: number;
-}
-
-export interface ScorePreview {
-  d: number;
-  a: number;
-  e: number;
-  final: number;
-  penalty: number;
-  total: number;
-}
-
-/**
- * Client-side preview only — server standings are the source of truth. The server
- * computes with Decimal; this uses binary floats, so the displayed total can drift
- * from the server's by ±0.01 in rare rounding cases. Never persist these numbers.
- */
-export function computePreview(input: PreviewInput): ScorePreview {
-  const penalty = input.penalty ?? 0;
-
-  if (input.band === "1-3") {
-    // Pre-aggregated: the entered mark IS the routine's score, less penalty.
-    const final = input.finalScore ?? 0;
-    return { d: 0, a: 0, e: 0, final, penalty, total: final - penalty };
-  }
-
-  // At 4-7 there is no DA, so trimmedMean([]) is 0 and (DB + DA) reduces to the
-  // required average of the two DB marks — adding zero is a no-op, same as the backend.
-  const d = trimmedMean(input.dBodyScores ?? []) + trimmedMean(input.dAppScores ?? []);
-  const a = trimmedMean(input.artistryScores ?? []);
-  const e = trimmedMean(input.eScores ?? []);
-  return { d, a, e, final: 0, penalty, total: d + a + e - penalty };
-}
 ```
+
+**Leave the existing `PreviewInput`, `ScorePreview`, and `computePreview` exactly as they already are in the file** — do not rewrite them. They keep their current signature (`{ dBody, dApp, artistry, eScores, penalty }` → `{ d, a, e, penalty, total }`) so `ScoreForm.tsx`, which still calls that shape, keeps compiling. Task 7 replaces them with the band-aware versions when it rewrites ScoreForm's box layout. Add the band table, the `E_MAX` / `deductionToScore` / `scoreToDeduction` conversions, and the `isEOnlyLevel` shim around them; touch nothing about the preview function.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -2001,16 +1913,123 @@ git commit -m "feat: add per-band judge panel slots and conflict checks"
 ### Task 7: `ScoreForm` — band-dependent boxes and the E round trip
 
 **Files:**
+- Modify: `frontend/src/lib/score-math.ts` (`computePreview` signature — moved here from Task 5, see below)
 - Modify: `frontend/src/features/scoring/save-diff.ts` (`BoxKey`)
 - Modify: `frontend/src/features/scoring/ScoreForm.tsx`
-- Test: `frontend/test/features/scoring/save-diff.test.ts`, `frontend/test/features/scoring/ScoringPage.test.tsx`
+- Test: `frontend/test/lib/score-math.test.ts` (add the `computePreview` band tests), `frontend/test/features/scoring/save-diff.test.ts`, `frontend/test/features/scoring/ScoringPage.test.tsx`
 
 **Interfaces:**
-- Consumes: `Band`, `profileForLevel`, `computePreview`, `deductionToScore`, `scoreToDeduction` (Task 5); `PanelAssignment` (Task 6).
+- Consumes: `Band`, `profileForLevel`, `deductionToScore`, `scoreToDeduction` (Task 5); `PanelAssignment` (Task 6).
 - Produces:
+  - `computePreview(input: PreviewInput): ScorePreview` with the **new** band-aware signature (below). Task 5 deliberately left `computePreview` on its old signature so every commit stayed green; the new signature lands here, together with the ScoreForm rewrite that is its only consumer — the two are coupled (the preview call reads `watched.dBody1`/`watched.dBody2`, boxes that do not exist until this task's box-layout rewrite), so they must change together.
   - `type BoxKey = "final" | "dBody1" | "dBody2" | "dApp" | "a1" | "a2" | "e1" | "e2" | "e3" | "e4"`
   - `boxesFor(panel: PanelAssignment, band: Band): BoxDef[]` — signature gains `band`; the returned list is exactly the boxes to render (no downstream filtering)
   - `E_BOX_KEYS: BoxKey[]` exported from `ScoreForm.tsx`
+
+- [ ] **Step 0: Change `computePreview` to the band-aware signature (in `score-math.ts`)**
+
+This is the change Task 5 deferred. In `frontend/src/lib/score-math.ts`, replace the existing `PreviewInput` / `ScorePreview` / `computePreview` (old shape: `{ dBody, dApp, artistry, eScores, penalty }`) with the band-aware versions:
+
+```ts
+/**
+ * Marks grouped by panel, exactly as compute_routine_score groups them — so that the
+ * two-DB-judges case at levels 4-7 and the four-E-judges case at 8+ reduce through the
+ * same code path on both sides. `eScores` are execution SCORES here, already converted
+ * from the form's deductions by the caller — computePreview does no conversion itself.
+ */
+export interface PreviewInput {
+  band: Band;
+  dBodyScores?: number[];
+  dAppScores?: number[];
+  artistryScores?: number[];
+  eScores?: number[];
+  finalScore?: number;
+  penalty?: number;
+}
+
+export interface ScorePreview {
+  d: number;
+  a: number;
+  e: number;
+  final: number;
+  penalty: number;
+  total: number;
+}
+
+/**
+ * Client-side preview only — server standings are the source of truth. The server
+ * computes with Decimal; this uses binary floats, so the displayed total can drift
+ * from the server's by ±0.01 in rare rounding cases. Never persist these numbers.
+ */
+export function computePreview(input: PreviewInput): ScorePreview {
+  const penalty = input.penalty ?? 0;
+
+  if (input.band === "1-3") {
+    // Pre-aggregated: the entered mark IS the routine's score, less penalty.
+    const final = input.finalScore ?? 0;
+    return { d: 0, a: 0, e: 0, final, penalty, total: final - penalty };
+  }
+
+  // At 4-7 there is no DA, so trimmedMean([]) is 0 and (DB + DA) reduces to the
+  // required average of the two DB marks — adding zero is a no-op, same as the backend.
+  const d = trimmedMean(input.dBodyScores ?? []) + trimmedMean(input.dAppScores ?? []);
+  const a = trimmedMean(input.artistryScores ?? []);
+  const e = trimmedMean(input.eScores ?? []);
+  return { d, a, e, final: 0, penalty, total: d + a + e - penalty };
+}
+```
+
+Then add this test block to `frontend/test/lib/score-math.test.ts` (import `computePreview` if not already imported):
+
+```ts
+describe("computePreview", () => {
+  it("records the final mark at levels 1-3", () => {
+    expect(computePreview({ band: "1-3", finalScore: 11.75 })).toEqual({
+      d: 0,
+      a: 0,
+      e: 0,
+      final: 11.75,
+      penalty: 0,
+      total: 11.75,
+    });
+  });
+
+  it("subtracts penalty from the final mark at levels 1-3", () => {
+    expect(computePreview({ band: "1-3", finalScore: 12, penalty: 0.3 }).total).toBeCloseTo(
+      11.7,
+      10,
+    );
+  });
+
+  it("averages the two DB marks at levels 4-7", () => {
+    const preview = computePreview({
+      band: "4-7",
+      dBodyScores: [2.4, 2.6],
+      eScores: [8.5, 8.7],
+    });
+    expect(preview.d).toBeCloseTo(2.5, 10);
+    expect(preview.e).toBeCloseTo(8.6, 10);
+    expect(preview.final).toBe(0);
+    expect(preview.total).toBeCloseTo(11.1, 10);
+  });
+
+  it("sums DB and DA and trims E at 8+", () => {
+    const preview = computePreview({
+      band: "8+",
+      dBodyScores: [5],
+      dAppScores: [3],
+      artistryScores: [8, 8.5],
+      eScores: [8.5, 8.6, 8.7, 9.9],
+    });
+    expect(preview.d).toBeCloseTo(8, 10);
+    expect(preview.a).toBeCloseTo(8.25, 10);
+    expect(preview.e).toBeCloseTo(8.65, 10);
+    expect(preview.total).toBeCloseTo(24.9, 10);
+  });
+});
+```
+
+Run `cd frontend && npm test -- --run test/lib/score-math.test.ts` and confirm green before moving on. `npm run build` will now be red (ScoreForm still calls the old shape) until Step 4 rewrites the call — that is expected within this task, and the task's final step re-greens it.
 
 - [ ] **Step 1: Update `BoxKey`**
 

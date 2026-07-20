@@ -9,8 +9,11 @@ Key points:
   resolution for both gymnast and group entries).
 - Builds one meet with several entries explicitly (rather than relying on make_routine's
   auto-built club/meet chain), so multiple entries can share one meet/level/age_group slice.
-- `medal` is additive to `rank`: it's a standard-based tier from the meet's configured
-  medal_gold_min/medal_silver_min, null on both endpoints when a meet isn't using cutoffs.
+- `medal` is additive to `rank`, and the system that produces it depends on the row's
+  level band (app/scoring.py): levels 1-3 use the meet's configured
+  medal_gold_min/medal_silver_min cutoffs (null on both endpoints when a meet isn't using
+  them); levels 4+ use placement (first three distinct ranks), regardless of whether
+  cutoffs happen to be configured.
 """
 
 from decimal import Decimal
@@ -183,28 +186,34 @@ def test_get_standings_medal_null_without_configured_cutoffs(client, db_session)
     assert response.json()["rankings"][0]["medal"] is None
 
 
-def test_get_standings_medal_tiers_from_configured_cutoffs(client, db_session):
-    # gold_min/silver_min apply uniformly across the meet, independent of rank --
-    # two different ranks can both land in "gold" here.
+def test_get_standings_medal_uses_placement_at_level_8_despite_configured_cutoffs(
+    client, db_session
+):
+    # Levels 8+ use placement medals regardless of whether the meet has cutoffs
+    # configured (level band, not cutoff configuration, selects the medal system --
+    # see profile_for_level(...).medal_mode). gold_min/silver_min are set here
+    # specifically to prove they're ignored at this band: were they applied, both the
+    # rank-1 and rank-2 rows would clear gold_min and both come out "gold"; under
+    # placement rank 2 must be "silver".
     # Explicit level-8+ band: the default band-1-3 level only scores off Panel.final,
     # so it would ignore these Execution-only marks entirely.
     meet = make_meet(db_session, medal_gold_min=Decimal("8.50"), medal_silver_min=Decimal("6.00"))
     gymnast_gold = make_gymnast(db_session, first_name="Top", last_name="Scorer")
-    gymnast_also_gold = make_gymnast(db_session, first_name="Second", last_name="Scorer")
+    gymnast_silver = make_gymnast(db_session, first_name="Second", last_name="Scorer")
     gymnast_bronze = make_gymnast(db_session, first_name="Low", last_name="Scorer")
 
     entry_gold = make_meet_entry(
         db_session, meet, gymnast=gymnast_gold, level=Level.senior, bib_number="101"
     )
-    entry_also_gold = make_meet_entry(
-        db_session, meet, gymnast=gymnast_also_gold, level=Level.senior, bib_number="102"
+    entry_silver = make_meet_entry(
+        db_session, meet, gymnast=gymnast_silver, level=Level.senior, bib_number="102"
     )
     entry_bronze = make_meet_entry(
         db_session, meet, gymnast=gymnast_bronze, level=Level.senior, bib_number="103"
     )
 
     routine_gold = make_routine(db_session, entry_gold, apparatus=Apparatus.ball)
-    routine_also_gold = make_routine(db_session, entry_also_gold, apparatus=Apparatus.ball)
+    routine_silver = make_routine(db_session, entry_silver, apparatus=Apparatus.ball)
     routine_bronze = make_routine(db_session, entry_bronze, apparatus=Apparatus.ball)
 
     judge = make_judge(db_session)
@@ -212,7 +221,7 @@ def test_get_standings_medal_tiers_from_configured_cutoffs(client, db_session):
         db_session, routine=routine_gold, judge=judge, panel=Panel.execution, value="9.50"
     )
     make_judge_score(
-        db_session, routine=routine_also_gold, judge=judge, panel=Panel.execution, value="9.00"
+        db_session, routine=routine_silver, judge=judge, panel=Panel.execution, value="9.00"
     )
     make_judge_score(
         db_session, routine=routine_bronze, judge=judge, panel=Panel.execution, value="5.00"
@@ -226,8 +235,8 @@ def test_get_standings_medal_tiers_from_configured_cutoffs(client, db_session):
 
     assert by_routine[routine_gold.id]["rank"] == 1
     assert by_routine[routine_gold.id]["medal"] == "gold"
-    assert by_routine[routine_also_gold.id]["rank"] == 2
-    assert by_routine[routine_also_gold.id]["medal"] == "gold"
+    assert by_routine[routine_silver.id]["rank"] == 2
+    assert by_routine[routine_silver.id]["medal"] == "silver"
     assert by_routine[routine_bronze.id]["rank"] == 3
     assert by_routine[routine_bronze.id]["medal"] == "bronze"
 
@@ -371,35 +380,40 @@ def test_get_all_around_medal_null_without_configured_cutoffs(client, db_session
     assert response.json()["rankings"][0]["medal"] is None
 
 
-def test_get_all_around_medal_tiers_from_configured_cutoffs(client, db_session):
-    # gold_min/silver_min apply to the summed all-around total, not a single
-    # apparatus's execution mark (which is capped at 10 per ck_judge_score_panel_value_cap).
+def test_get_all_around_medal_uses_placement_at_level_8_despite_configured_cutoffs(
+    client, db_session
+):
+    # Levels 8+ use placement medals regardless of whether the meet has cutoffs
+    # configured -- see profile_for_level(...).medal_mode. gold_min/silver_min are set
+    # here specifically to prove they're ignored at this band: under the cutoff system
+    # entry_gold's 15.00 total would land in "silver" (below the 16.00 gold_min); under
+    # placement its rank of 1 makes it "gold".
     # Explicit level-8+ band: the default band-1-3 level only scores off Panel.final,
     # so it would ignore these Execution-only marks entirely.
     meet = make_meet(db_session, medal_gold_min=Decimal("16.00"), medal_silver_min=Decimal("10.00"))
-    gymnast_silver = make_gymnast(db_session, first_name="Mid", last_name="Scorer")
-    gymnast_bronze = make_gymnast(db_session, first_name="Low", last_name="Scorer")
+    gymnast_gold = make_gymnast(db_session, first_name="Mid", last_name="Scorer")
+    gymnast_silver = make_gymnast(db_session, first_name="Low", last_name="Scorer")
 
+    entry_gold = make_meet_entry(
+        db_session, meet, gymnast=gymnast_gold, level=Level.senior, bib_number="101"
+    )
     entry_silver = make_meet_entry(
-        db_session, meet, gymnast=gymnast_silver, level=Level.senior, bib_number="101"
-    )
-    entry_bronze = make_meet_entry(
-        db_session, meet, gymnast=gymnast_bronze, level=Level.senior, bib_number="102"
+        db_session, meet, gymnast=gymnast_silver, level=Level.senior, bib_number="102"
     )
 
-    ball_silver = make_routine(db_session, entry_silver, apparatus=Apparatus.ball)
-    hoop_silver = make_routine(db_session, entry_silver, apparatus=Apparatus.hoop)
-    routine_bronze = make_routine(db_session, entry_bronze, apparatus=Apparatus.ball)
+    ball_gold = make_routine(db_session, entry_gold, apparatus=Apparatus.ball)
+    hoop_gold = make_routine(db_session, entry_gold, apparatus=Apparatus.hoop)
+    routine_silver = make_routine(db_session, entry_silver, apparatus=Apparatus.ball)
 
     judge = make_judge(db_session)
     make_judge_score(
-        db_session, routine=ball_silver, judge=judge, panel=Panel.execution, value="8.00"
+        db_session, routine=ball_gold, judge=judge, panel=Panel.execution, value="8.00"
     )
     make_judge_score(
-        db_session, routine=hoop_silver, judge=judge, panel=Panel.execution, value="7.00"
+        db_session, routine=hoop_gold, judge=judge, panel=Panel.execution, value="7.00"
     )
     make_judge_score(
-        db_session, routine=routine_bronze, judge=judge, panel=Panel.execution, value="5.00"
+        db_session, routine=routine_silver, judge=judge, panel=Panel.execution, value="5.00"
     )
     db_session.commit()
 
@@ -408,5 +422,99 @@ def test_get_all_around_medal_tiers_from_configured_cutoffs(client, db_session):
     assert response.status_code == 200
     by_entry = {row["entry_id"]: row for row in response.json()["rankings"]}
 
+    assert by_entry[entry_gold.id]["medal"] == "gold"
     assert by_entry[entry_silver.id]["medal"] == "silver"
-    assert by_entry[entry_bronze.id]["medal"] == "bronze"
+
+
+def test_all_around_uses_cutoff_medals_at_levels_1_3(client, db_session):
+    meet = make_meet(db_session, medal_gold_min=Decimal("24.00"), medal_silver_min=Decimal("21.00"))
+    for index, total in enumerate(("13.00", "11.00")):
+        entry = make_meet_entry(
+            db_session,
+            meet=meet,
+            gymnast=make_gymnast(db_session, first_name=f"Gym{index}"),
+            level=Level.level_1,
+            bib_number=f"B{index}",
+        )
+        for apparatus in (Apparatus.hoop, Apparatus.ball):
+            routine = make_routine(db_session, meet_entry=entry, apparatus=apparatus)
+            make_judge_score(
+                db_session,
+                routine=routine,
+                judge=make_judge(db_session, first_name=f"J{apparatus}{total}"),
+                panel=Panel.final,
+                value=Decimal(total),
+            )
+    db_session.commit()
+
+    response = client.get(f"/meets/{meet.id}/all-around", params={"level": "level_1"})
+
+    assert response.status_code == 200
+    rows = response.json()["rankings"]
+    # 26.00 clears the 24.00 gold cutoff; 22.00 lands between silver and gold.
+    assert [row["total"] for row in rows] == ["26.00", "22.00"]
+    assert [row["medal"] for row in rows] == ["gold", "silver"]
+
+
+def test_standings_use_placement_medals_at_level_8(client, db_session):
+    # No cutoffs configured at all: placement medals need no configuration.
+    meet = make_meet(db_session)
+    for index, value in enumerate(("9.00", "8.00", "7.00", "6.00")):
+        entry = make_meet_entry(
+            db_session,
+            meet=meet,
+            gymnast=make_gymnast(db_session, first_name=f"Gym{index}"),
+            level=Level.level_8,
+            bib_number=f"B{index}",
+        )
+        routine = make_routine(db_session, meet_entry=entry, apparatus=Apparatus.hoop)
+        make_judge_score(
+            db_session,
+            routine=routine,
+            judge=make_judge(db_session, first_name=f"J{value}"),
+            panel=Panel.execution,
+            value=Decimal(value),
+        )
+    db_session.commit()
+
+    response = client.get(
+        f"/meets/{meet.id}/standings",
+        params={"apparatus": "hoop", "level": "level_8"},
+    )
+
+    assert response.status_code == 200
+    rows = response.json()["rankings"]
+    assert [row["rank"] for row in rows] == [1, 2, 3, 4]
+    assert [row["medal"] for row in rows] == ["gold", "silver", "bronze", None]
+
+
+def test_standings_placement_medals_share_a_rank_and_still_award_bronze(client, db_session):
+    # One winner, two tied second -> ranks 1,2,2,4. The 4th row has placed third and
+    # must get bronze; `rank <= 3` would deny it.
+    meet = make_meet(db_session)
+    for index, value in enumerate(("9.00", "8.00", "8.00", "7.00")):
+        entry = make_meet_entry(
+            db_session,
+            meet=meet,
+            gymnast=make_gymnast(db_session, first_name=f"Gym{index}"),
+            level=Level.level_5,
+            bib_number=f"B{index}",
+        )
+        routine = make_routine(db_session, meet_entry=entry, apparatus=Apparatus.hoop)
+        make_judge_score(
+            db_session,
+            routine=routine,
+            judge=make_judge(db_session, first_name=f"J{value}{entry.id}"),
+            panel=Panel.execution,
+            value=Decimal(value),
+        )
+    db_session.commit()
+
+    response = client.get(
+        f"/meets/{meet.id}/standings",
+        params={"apparatus": "hoop", "level": "level_5"},
+    )
+
+    rows = response.json()["rankings"]
+    assert [row["rank"] for row in rows] == [1, 2, 2, 4]
+    assert [row["medal"] for row in rows] == ["gold", "silver", "silver", "bronze"]

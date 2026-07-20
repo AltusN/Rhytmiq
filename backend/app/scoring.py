@@ -6,7 +6,7 @@ docstring) and by app/models.py's Routine.penalty machinery indirectly via the
 routers that call into here.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
@@ -249,6 +249,31 @@ def medal_for_total(
     if total >= silver_min:
         return "silver"
     return "bronze"
+
+
+def assign_placement_medals(ranks: Sequence[int]) -> list[Medal | None]:
+    """
+    Placement medals for levels 4+: the first three DISTINCT rank values take gold,
+    silver and bronze, and everyone sharing a rank shares its medal.
+
+    Deliberately a separate pass over ranks rather than a `rank <= 3` lookup: with one
+    winner and two tied for second the ranks are 1, 2, 2, 4, and `rank <= 3` would deny
+    bronze to the fourth competitor who has in fact placed third.
+
+    Expressed over ranks rather than over distinct totals on purpose. The two agree
+    until level 8+, where the Execution tie-break separates equal totals into different
+    ranks -- ranks compose with tie-breaking, totals fight it.
+
+    Args:
+        ranks: competition ranks (1,2,2,4), in the order rows will be returned.
+
+    Returns:
+        One medal or None per input rank, in the same order.
+    """
+    podium = sorted(set(ranks))[:3]
+    tiers: tuple[Medal, ...] = ("gold", "silver", "bronze")
+    by_rank: dict[int, Medal] = dict(zip(podium, tiers, strict=False))
+    return [by_rank.get(rank) for rank in ranks]
 
 
 @dataclass(frozen=True)

@@ -23,6 +23,7 @@ from app.scoring import (
     ApparatusStanding,
     MedalMode,
     RoutineScoreResult,
+    assign_placement_medals,
     compute_routine_score,
     is_panel_valid_for_level,
     medal_for_total,
@@ -566,3 +567,21 @@ def test_rank_all_around_does_not_break_ties_on_execution_at_levels_1_3():
     standings = rank_all_around([a, b])
 
     assert [standing.rank for standing in standings] == [1, 1]
+
+
+@pytest.mark.parametrize(
+    "ranks, expected",
+    [
+        ([1, 2, 3, 4], ["gold", "silver", "bronze", None]),
+        # Two tied at top: distinct ranks are 1, 3, 4 -> two golds, then silver, bronze.
+        ([1, 1, 3, 4], ["gold", "gold", "silver", "bronze"]),
+        # One winner, two tied second: distinct ranks 1, 2, 4 -> the 4th-place gymnast
+        # still takes bronze. A `rank <= 3` implementation would deny it.
+        ([1, 2, 2, 4], ["gold", "silver", "silver", "bronze"]),
+        ([1, 1, 1, 4], ["gold", "gold", "gold", "silver"]),
+        ([1, 2], ["gold", "silver"]),
+        ([], []),
+    ],
+)
+def test_assign_placement_medals(ranks, expected):
+    assert assign_placement_medals(ranks) == expected

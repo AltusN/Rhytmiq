@@ -49,10 +49,10 @@ def _make_judge_routine(db_session):
     different apparatus (rather than getting a brand-new gymnast from make_routine's
     auto-build path). Returns a (routine, judge, meet_entry) tuple.
 
-    Uses Level.senior (rather than make_meet_entry's level_3 default, which is
-    Execution-only under the level-gated D/A rule) so these tests keep exercising
-    panel/value semantics across all four panels -- level-gating itself is tested
-    separately below.
+    Uses Level.senior (rather than make_meet_entry's level_3 default, which under the
+    band table only accepts Panel.final) so these tests keep exercising panel/value
+    semantics across all four D/A/E panels -- level-gating itself is tested separately
+    below.
     """
     district = make_district(db_session)
     club = make_club(db_session, district=district)
@@ -213,9 +213,10 @@ def _make_level_1_routine(db_session):
     return make_routine(db_session, meet_entry=meet_entry)
 
 
-def test_create_judge_score_difficulty_rejected_for_e_only_level(client, db_session):
-    # level_1 routines are scored on execution only -- a difficulty_body mark is
-    # invalid for the routine's level, not just a data conflict, hence 422.
+def test_create_judge_score_difficulty_rejected_for_level_1(client, db_session):
+    # level_1 routines are scored on Panel.final only (one pre-aggregated mark) -- a
+    # difficulty_body mark is invalid for the routine's level, not just a data
+    # conflict, hence 422.
     routine = _make_level_1_routine(db_session)
     judge = make_judge(db_session)
 
@@ -228,10 +229,10 @@ def test_create_judge_score_difficulty_rejected_for_e_only_level(client, db_sess
     response = client.post("/judge-scores/", json=payload)
     assert response.status_code == 422
     data = response.json()
-    assert "execution only" in data["detail"]
+    assert "final" in data["detail"]
 
 
-def test_create_judge_score_artistry_rejected_for_e_only_level(client, db_session):
+def test_create_judge_score_artistry_rejected_for_level_1(client, db_session):
     routine = _make_level_1_routine(db_session)
     judge = make_judge(db_session)
 
@@ -244,11 +245,13 @@ def test_create_judge_score_artistry_rejected_for_e_only_level(client, db_sessio
     response = client.post("/judge-scores/", json=payload)
     assert response.status_code == 422
     data = response.json()
-    assert "execution only" in data["detail"]
+    assert "final" in data["detail"]
 
 
-def test_create_judge_score_execution_allowed_for_e_only_level(client, db_session):
-    # The one panel that IS valid for an E-only level should not be blocked by the gate.
+def test_create_judge_score_execution_rejected_for_level_1(client, db_session):
+    # Under the old E_ONLY_LEVELS rule, execution was the one valid panel at level 1.
+    # Under the new band table, levels 1-3 record ONE pre-aggregated mark on
+    # Panel.final instead -- execution is no longer valid there.
     routine = _make_level_1_routine(db_session)
     judge = make_judge(db_session)
 
@@ -257,6 +260,23 @@ def test_create_judge_score_execution_allowed_for_e_only_level(client, db_sessio
         "judge_id": judge.id,
         "panel": Panel.execution,
         "value": 8.5,
+    }
+    response = client.post("/judge-scores/", json=payload)
+    assert response.status_code == 422
+    data = response.json()
+    assert "final" in data["detail"]
+
+
+def test_create_judge_score_final_allowed_for_level_1(client, db_session):
+    # The one panel that IS valid for a level 1-3 routine should not be blocked by the gate.
+    routine = _make_level_1_routine(db_session)
+    judge = make_judge(db_session)
+
+    payload = {
+        "routine_id": routine.id,
+        "judge_id": judge.id,
+        "panel": Panel.final,
+        "value": 11.50,
     }
     response = client.post("/judge-scores/", json=payload)
     assert response.status_code == 201
@@ -557,3 +577,83 @@ def test_delete_judge_score_after_meet_completion_rejected(client, db_session):
     assert response_delete.status_code == 409  # Conflict
     data = response_delete.json()
     assert f"Meet {routine.entry.meet.id} is completed" in data["detail"]
+
+
+##-- Level-band panel gate (app.scoring.profile_for_level) --##
+# Note: level-1 execution-rejected and final-allowed are covered above by
+# test_create_judge_score_execution_rejected_for_level_1 /
+# test_create_judge_score_final_allowed_for_level_1 (which use the _make_level_1_routine
+# helper); the remaining band-gate cases below cover levels 4 and 8.
+
+
+def test_create_judge_score_accepts_difficulty_body_at_level_4(client, db_session):
+    # The headline spec change: the backend used to REJECT a Difficulty mark at level 4.
+    entry = make_meet_entry(
+        db_session,
+        meet=make_meet(db_session),
+        gymnast=make_gymnast(db_session),
+        level=Level.level_4,
+    )
+    routine = make_routine(db_session, meet_entry=entry)
+    judge = make_judge(db_session)
+    db_session.commit()
+
+    response = client.post(
+        "/judge-scores/",
+        json={
+            "routine_id": routine.id,
+            "judge_id": judge.id,
+            "panel": "difficulty_body",
+            "value": "2.40",
+        },
+    )
+
+    assert response.status_code == 201
+
+
+def test_create_judge_score_rejects_artistry_at_level_4(client, db_session):
+    entry = make_meet_entry(
+        db_session,
+        meet=make_meet(db_session),
+        gymnast=make_gymnast(db_session),
+        level=Level.level_4,
+    )
+    routine = make_routine(db_session, meet_entry=entry)
+    judge = make_judge(db_session)
+    db_session.commit()
+
+    response = client.post(
+        "/judge-scores/",
+        json={
+            "routine_id": routine.id,
+            "judge_id": judge.id,
+            "panel": "artistry",
+            "value": "8.00",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_judge_score_rejects_final_at_level_8(client, db_session):
+    entry = make_meet_entry(
+        db_session,
+        meet=make_meet(db_session),
+        gymnast=make_gymnast(db_session),
+        level=Level.level_8,
+    )
+    routine = make_routine(db_session, meet_entry=entry)
+    judge = make_judge(db_session)
+    db_session.commit()
+
+    response = client.post(
+        "/judge-scores/",
+        json={
+            "routine_id": routine.id,
+            "judge_id": judge.id,
+            "panel": "final",
+            "value": "12.00",
+        },
+    )
+
+    assert response.status_code == 422

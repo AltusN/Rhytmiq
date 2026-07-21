@@ -20,7 +20,7 @@ Key differences from other routers:
 
 from decimal import Decimal
 
-from app.models import Apparatus, MeetStatus, Panel
+from app.models import Apparatus, Level, MeetStatus, Panel
 from test.conftest import (
     make_gymnast,
     make_judge,
@@ -31,10 +31,10 @@ from test.conftest import (
 )
 
 
-def _entry(db_session):
+def _entry(db_session, level=Level.level_3):
     meet = make_meet(db_session)
     gymnast = make_gymnast(db_session)
-    return make_meet_entry(db_session, meet, gymnast=gymnast)
+    return make_meet_entry(db_session, meet, gymnast=gymnast, level=level)
 
 
 ##-- POST /routines --##
@@ -208,7 +208,9 @@ def test_get_routine_score_no_marks_yet(client, db_session):
 
 
 def test_get_routine_score_composes_marks_and_penalty(client, db_session):
-    entry = _entry(db_session)
+    # Explicit level-8+ band: this test exercises the full D/A/E panel, which the
+    # default band-1-3 level (see _entry) no longer computes that way.
+    entry = _entry(db_session, level=Level.senior)
     routine = make_routine(db_session, entry, apparatus=Apparatus.hoop)
     routine.penalty = Decimal("0.30")
     db_session.flush()
@@ -235,6 +237,40 @@ def test_get_routine_score_composes_marks_and_penalty(client, db_session):
     assert Decimal(body["e_score"]) == Decimal("8.50")
     assert Decimal(body["penalty"]) == Decimal("0.30")
     assert Decimal(body["total"]) == Decimal("22.50")
+
+
+def test_get_routine_score_final_score_for_level_1_3(client, db_session):
+    # _entry defaults to Level.level_3, which is band 1-3: the single `final` mark IS
+    # the routine's score, surfaced via final_score rather than the D/A/E panels.
+    entry = _entry(db_session)
+    routine = make_routine(db_session, entry, apparatus=Apparatus.hoop)
+    db_session.commit()
+
+    judge = make_judge(db_session)
+    make_judge_score(db_session, routine=routine, judge=judge, panel=Panel.final, value="11.75")
+    db_session.commit()
+
+    response = client.get(f"/routines/{routine.id}/score")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert Decimal(body["final_score"]) == Decimal("11.75")
+    assert Decimal(body["total"]) == Decimal("11.75")
+
+
+def test_get_routine_score_final_score_zero_for_level_8_plus(client, db_session):
+    entry = _entry(db_session, level=Level.senior)
+    routine = make_routine(db_session, entry, apparatus=Apparatus.hoop)
+    db_session.commit()
+
+    judge = make_judge(db_session)
+    make_judge_score(db_session, routine=routine, judge=judge, panel=Panel.execution, value="9.00")
+    db_session.commit()
+
+    response = client.get(f"/routines/{routine.id}/score")
+
+    assert response.status_code == 200
+    assert response.json()["final_score"] == "0.00"
 
 
 ##-- PATCH /routines/{id} --##

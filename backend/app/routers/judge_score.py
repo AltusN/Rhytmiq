@@ -15,7 +15,7 @@ from app.db import get_db
 from app.models import Judge, JudgeScore, Panel, Routine
 from app.routers._guards import ensure_meet_not_completed
 from app.schemas.judge_score import JudgeScoreCreate, JudgeScoreRead, JudgeScoreUpdate
-from app.scoring import is_panel_valid_for_level
+from app.scoring import is_panel_valid_for_level, profile_for_level
 
 router = APIRouter(prefix="/judge-scores", tags=["Judge Scores"])
 
@@ -27,10 +27,11 @@ def create_judge_score(payload: JudgeScoreCreate, db: Annotated[Session, Depends
     Create a new judge score.
 
     Design notes:
-    - Levels 1-7 are Execution-only (see app.scoring.E_ONLY_LEVELS) -- a difficulty_body/
-      difficulty_apparatus/artistry mark against a routine at one of those levels is
-      rejected with a 422, since the payload is invalid for that routine's level, not
-      merely in conflict with existing data.
+    - Which panels are legal depends on the routine's level band (see
+      app.scoring.profile_for_level): levels 1-3 accept only `final`, levels 4-7 accept
+      `difficulty_body` and `execution`, levels 8+ accept the full D/A/E set. A mark on
+      a panel outside that set is rejected with a 422, since the payload is invalid for
+      that routine's level, not merely in conflict with existing data.
     - Known limitation: this level/panel gate only runs at this HTTP API boundary, since
       it needs a cross-table join (routine -> entry -> level) that a Postgres CHECK
       constraint can't express. Direct ORM writes (test factories, future seed/admin
@@ -47,11 +48,14 @@ def create_judge_score(payload: JudgeScoreCreate, db: Annotated[Session, Depends
     ensure_meet_not_completed(routine.entry.meet)
 
     if not is_panel_valid_for_level(routine.entry.level, payload.panel):
+        profile = profile_for_level(routine.entry.level)
+        valid = ", ".join(sorted(panel.value for panel in profile.panels))
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                f"Routine {payload.routine_id} is level {routine.entry.level.value}, "
-                f"which is scored on execution only -- {payload.panel.value} is not valid."
+                f"Routine {payload.routine_id} is level {routine.entry.level.value} "
+                f"(scoring band {profile.band}), which is scored on {valid} -- "
+                f"{payload.panel.value} is not valid."
             ),
         )
     judge = db.get(Judge, payload.judge_id)

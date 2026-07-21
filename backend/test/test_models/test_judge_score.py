@@ -286,3 +286,35 @@ def test_judge_score_value_is_0(db_session):
     db_session.commit()
 
     assert db_session.query(JudgeScore).filter_by(id=judge_score.id).first() is not None
+
+
+def test_judge_final_score_up_to_13_allowed(db_session):
+    # Levels 1-3 hand the scorer one finished mark out of 13 (D and E already folded
+    # in on paper), so Panel.final is capped at 13 rather than execution's 10.
+    routine = make_routine(db_session)
+    judge = make_judge(db_session)
+    judge_score = JudgeScore(
+        routine_id=routine.id,
+        judge_id=judge.id,
+        value=13.00,
+        panel=Panel.final,
+    )
+    db_session.add(judge_score)
+    db_session.commit()
+
+    assert judge_score.id is not None
+
+
+def test_judge_final_score_above_13_not_allowed(db_session):
+    routine = make_routine(db_session)
+    judge = make_judge(db_session)
+    judge_score = JudgeScore(
+        routine_id=routine.id,
+        judge_id=judge.id,
+        value=13.05,
+        panel=Panel.final,
+    )
+    db_session.add(judge_score)
+
+    with pytest.raises(IntegrityError):
+        db_session.commit()

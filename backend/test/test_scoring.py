@@ -15,9 +15,15 @@ import pytest
 
 from app.models import Level, Panel
 from app.scoring import (
+    _PROFILE_BY_LEVEL,
+    BAND_1_3,
+    BAND_4_7,
+    BAND_8_PLUS,
     AllAroundStanding,
     ApparatusStanding,
+    MedalMode,
     RoutineScoreResult,
+    assign_placement_medals,
     compute_routine_score,
     is_panel_valid_for_level,
     medal_for_total,
@@ -71,8 +77,14 @@ def _mark(panel, value):
     return SimpleNamespace(panel=panel, value=Decimal(value))
 
 
-def _routine(marks, penalty="0"):
-    return SimpleNamespace(judge_scores=marks, penalty=Decimal(penalty))
+def _routine(marks, penalty="0", level=Level.senior):
+    # Defaults to a level-8+ band so the pre-existing full-FIG worked examples below
+    # keep exercising the (DB + DA) + A + E path unchanged.
+    return SimpleNamespace(
+        judge_scores=marks,
+        penalty=Decimal(penalty),
+        entry=SimpleNamespace(level=level),
+    )
 
 
 def test_compute_routine_score_with_no_marks_returns_zero_scores():
@@ -198,22 +210,68 @@ def test_compute_routine_score_d_score_is_not_capped_at_10():
     assert result.d_score == Decimal("18.20")
 
 
-@pytest.mark.parametrize("level", [Level.level_1, Level.level_7])
-@pytest.mark.parametrize("panel", list(Panel))
-def test_is_panel_valid_for_level_e_only_levels(level, panel):
-    assert is_panel_valid_for_level(level, panel) == (panel == Panel.execution)
-
-
 @pytest.mark.parametrize(
-    "level", [Level.level_8, Level.high_performance_1, Level.senior, Level.olympic]
+    "level, valid_panels",
+    [
+        (Level.level_1, {Panel.final}),
+        (Level.level_3, {Panel.final}),
+        (Level.level_4, {Panel.difficulty_body, Panel.execution}),
+        (Level.level_7, {Panel.difficulty_body, Panel.execution}),
+        (
+            Level.level_8,
+            {
+                Panel.difficulty_body,
+                Panel.difficulty_apparatus,
+                Panel.artistry,
+                Panel.execution,
+            },
+        ),
+        (
+            Level.senior,
+            {
+                Panel.difficulty_body,
+                Panel.difficulty_apparatus,
+                Panel.artistry,
+                Panel.execution,
+            },
+        ),
+    ],
 )
 @pytest.mark.parametrize("panel", list(Panel))
-def test_is_panel_valid_for_level_non_gated_levels(level, panel):
-    assert is_panel_valid_for_level(level, panel) is True
+def test_is_panel_valid_for_level(level, valid_panels, panel):
+    assert is_panel_valid_for_level(level, panel) == (panel in valid_panels)
 
 
-def _entry(routines):
-    return SimpleNamespace(routines=routines)
+def test_every_level_is_explicitly_banded():
+    # Set equality, not per-level lookup: no band is built as the complement of the
+    # others, so a Level added to the enum without a band assignment is simply missing
+    # here and this fails -- which is the whole point of the map being explicit.
+    assert set(_PROFILE_BY_LEVEL) == set(Level)
+
+
+def test_band_profiles_match_the_spec():
+    assert BAND_1_3.medal_mode is MedalMode.cutoff
+    assert BAND_1_3.tie_break_on_execution is False
+    assert BAND_1_3.judges_per_panel == {Panel.final: 1}
+
+    assert BAND_4_7.medal_mode is MedalMode.placement
+    assert BAND_4_7.tie_break_on_execution is False
+    # Deliberate asymmetry (spec, confirmed 2026-07-20): TWO DB judges here, but one DB
+    # and one DA at 8+. Do not "fix" this into consistency.
+    assert BAND_4_7.judges_per_panel == {Panel.difficulty_body: 2, Panel.execution: 2}
+
+    assert BAND_8_PLUS.medal_mode is MedalMode.placement
+    assert BAND_8_PLUS.tie_break_on_execution is True
+    assert BAND_8_PLUS.judges_per_panel == {
+        Panel.difficulty_body: 1,
+        Panel.difficulty_apparatus: 1,
+        Panel.artistry: 2,
+        Panel.execution: 4,
+    }
+
+
+def _entry(routines, level=Level.senior):
+    return SimpleNamespace(routines=routines, level=level)
 
 
 def test_rank_apparatus_orders_by_total_descending():
@@ -353,3 +411,177 @@ def test_rank_all_around_shares_rank_on_full_tie():
 
 def test_rank_all_around_empty_input_returns_empty_list():
     assert rank_all_around([]) == []
+
+
+def test_compute_routine_score_level_1_3_records_the_final_mark():
+    # The application is not calculating a score at this band; it is recording one.
+    routine = _routine([_mark(Panel.final, "11.75")], level=Level.level_2)
+
+    result = compute_routine_score(routine)
+
+    assert result.final_score == Decimal("11.75")
+    assert result.total == Decimal("11.75")
+    assert result.d_score == Decimal("0")
+    assert result.a_score == Decimal("0")
+    assert result.e_score == Decimal("0")
+
+
+def test_compute_routine_score_level_1_3_subtracts_penalty():
+    routine = _routine([_mark(Panel.final, "12.00")], penalty="0.30", level=Level.level_3)
+
+    result = compute_routine_score(routine)
+
+    assert result.total == Decimal("11.70")
+
+
+def test_compute_routine_score_level_1_3_ignores_marks_on_other_panels():
+    # Stale/illegal marks (direct ORM writes bypass the API's panel gate) must not leak
+    # into a band-1-3 total.
+    routine = _routine(
+        [_mark(Panel.final, "10.00"), _mark(Panel.execution, "9.00")],
+        level=Level.level_1,
+    )
+
+    result = compute_routine_score(routine)
+
+    assert result.e_score == Decimal("0")
+    assert result.total == Decimal("10.00")
+
+
+def test_compute_routine_score_level_4_7_averages_the_two_db_marks():
+    # No DA exists at this band, so trimmed_mean([]) returns 0 and the shipped additive
+    # formula (DB + DA) already yields avg(DB1, DB2). Adding zero is a no-op.
+    routine = _routine(
+        [
+            _mark(Panel.difficulty_body, "2.40"),
+            _mark(Panel.difficulty_body, "2.60"),
+            _mark(Panel.execution, "8.50"),
+            _mark(Panel.execution, "8.70"),
+        ],
+        level=Level.level_5,
+    )
+
+    result = compute_routine_score(routine)
+
+    assert result.d_score == Decimal("2.50")
+    assert result.e_score == Decimal("8.60")
+    assert result.final_score == Decimal("0")
+    assert result.total == Decimal("11.10")
+
+
+def test_compute_routine_score_level_4_7_ignores_marks_on_out_of_band_panels():
+    # Same protection band 1-3 gets: the API's panel gate is HTTP-only, so a stale
+    # artistry or difficulty_apparatus mark can reach a level 4-7 routine via a direct
+    # ORM write. Scoring it would inflate the total.
+    routine = _routine(
+        [
+            _mark(Panel.difficulty_body, "2.40"),
+            _mark(Panel.difficulty_body, "2.60"),
+            _mark(Panel.execution, "8.50"),
+            _mark(Panel.execution, "8.70"),
+            _mark(Panel.difficulty_apparatus, "3.00"),
+            _mark(Panel.artistry, "9.00"),
+        ],
+        level=Level.level_5,
+    )
+
+    result = compute_routine_score(routine)
+
+    assert result.d_score == Decimal("2.50")
+    assert result.a_score == Decimal("0")
+    assert result.total == Decimal("11.10")
+
+
+def test_compute_routine_score_8_plus_is_unchanged_and_has_zero_final():
+    routine = _routine(
+        [
+            _mark(Panel.difficulty_body, "5.00"),
+            _mark(Panel.difficulty_apparatus, "3.00"),
+            _mark(Panel.artistry, "8.00"),
+            _mark(Panel.execution, "9.00"),
+        ]
+    )
+
+    result = compute_routine_score(routine)
+
+    assert result.final_score == Decimal("0")
+    assert result.total == Decimal("25.00")
+
+
+def test_compute_routine_score_8_plus_ignores_marks_on_final_panel():
+    # Companion to the band 1-3 and 4-7 out-of-band guards: Panel.final is illegal at
+    # level 8+ (there is no pre-aggregated judge at this band), so a stray final mark
+    # left by a direct ORM write must not be added into the total.
+    routine = _routine(
+        [
+            _mark(Panel.difficulty_body, "5.00"),
+            _mark(Panel.difficulty_apparatus, "3.00"),
+            _mark(Panel.artistry, "8.00"),
+            _mark(Panel.execution, "9.00"),
+            _mark(Panel.final, "11.00"),
+        ]
+    )
+
+    result = compute_routine_score(routine)
+
+    # d_score = difficulty_body (5.00) + difficulty_apparatus (3.00) = 8.00
+    # a_score = trimmed_mean([8.00]) = 8.00 (single mark, no trimming below TRIM_THRESHOLD)
+    # e_score = trimmed_mean([9.00]) = 9.00
+    # total = 8.00 + 8.00 + 9.00 - 0 penalty = 25.00 -- identical to the total without the
+    # stray final mark, proving the illegal 11.00 mark contributed nothing.
+    assert result.final_score == Decimal("0.00")
+    assert result.total == Decimal("25.00")
+
+
+def test_rank_apparatus_breaks_ties_on_execution_at_level_8_plus():
+    lower_e = _routine([_mark(Panel.difficulty_body, "6.00"), _mark(Panel.execution, "8.00")])
+    higher_e = _routine([_mark(Panel.difficulty_body, "5.00"), _mark(Panel.execution, "9.00")])
+
+    standings = rank_apparatus([lower_e, higher_e])
+
+    assert [standing.routine for standing in standings] == [higher_e, lower_e]
+    assert [standing.rank for standing in standings] == [1, 2]
+
+
+def test_rank_apparatus_does_not_break_ties_on_execution_at_levels_4_7():
+    # Spec: no tie-breaks below level 8. Equal totals share a rank even when their
+    # Execution differs.
+    lower_e = _routine(
+        [_mark(Panel.difficulty_body, "3.00"), _mark(Panel.execution, "8.00")],
+        level=Level.level_5,
+    )
+    higher_e = _routine(
+        [_mark(Panel.difficulty_body, "2.00"), _mark(Panel.execution, "9.00")],
+        level=Level.level_5,
+    )
+
+    standings = rank_apparatus([lower_e, higher_e])
+
+    assert [standing.rank for standing in standings] == [1, 1]
+
+
+def test_rank_all_around_does_not_break_ties_on_execution_at_levels_1_3():
+    a = _entry([_routine([_mark(Panel.final, "12.00")], level=Level.level_1)], level=Level.level_1)
+    b = _entry([_routine([_mark(Panel.final, "12.00")], level=Level.level_1)], level=Level.level_1)
+
+    standings = rank_all_around([a, b])
+
+    assert [standing.rank for standing in standings] == [1, 1]
+
+
+@pytest.mark.parametrize(
+    "ranks, expected",
+    [
+        ([1, 2, 3, 4], ["gold", "silver", "bronze", None]),
+        # Two tied at top: distinct ranks are 1, 3, 4 -> two golds, then silver, bronze.
+        ([1, 1, 3, 4], ["gold", "gold", "silver", "bronze"]),
+        # One winner, two tied second: distinct ranks 1, 2, 4 -> the 4th-place gymnast
+        # still takes bronze. A `rank <= 3` implementation would deny it.
+        ([1, 2, 2, 4], ["gold", "silver", "silver", "bronze"]),
+        ([1, 1, 1, 4], ["gold", "gold", "gold", "silver"]),
+        ([1, 2], ["gold", "silver"]),
+        ([], []),
+    ],
+)
+def test_assign_placement_medals(ranks, expected):
+    assert assign_placement_medals(ranks) == expected

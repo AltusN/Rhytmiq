@@ -456,6 +456,42 @@ def test_all_around_uses_cutoff_medals_at_levels_1_3(client, db_session):
     assert [row["medal"] for row in rows] == ["gold", "silver"]
 
 
+def test_standings_suppress_cutoff_medals_at_levels_1_3(client, db_session):
+    # Cutoffs are scaled for the 2-apparatus all-around (max 26). A single 0-13 routine
+    # can never clear the 24.00 gold / 21.00 silver cutoff, so applying them per-apparatus
+    # would mark every level 1-3 competitor bronze -- suppress instead (medal is null on
+    # /standings for cutoff bands; the cutoff medal only appears on /all-around).
+    meet = make_meet(db_session, medal_gold_min=Decimal("24.00"), medal_silver_min=Decimal("21.00"))
+    for index, value in enumerate(("13.00", "11.00")):
+        entry = make_meet_entry(
+            db_session,
+            meet=meet,
+            gymnast=make_gymnast(db_session, first_name=f"Gym{index}"),
+            level=Level.level_1,
+            bib_number=f"B{index}",
+        )
+        routine = make_routine(db_session, meet_entry=entry, apparatus=Apparatus.hoop)
+        make_judge_score(
+            db_session,
+            routine=routine,
+            judge=make_judge(db_session, first_name=f"J{value}"),
+            panel=Panel.final,
+            value=Decimal(value),
+        )
+    db_session.commit()
+
+    response = client.get(
+        f"/meets/{meet.id}/standings", params={"apparatus": "hoop", "level": "level_1"}
+    )
+
+    assert response.status_code == 200
+    rows = response.json()["rankings"]
+    assert [row["total"] for row in rows] == ["13.00", "11.00"]
+    # Ranked normally, but no cutoff medal on the per-apparatus view.
+    assert [row["rank"] for row in rows] == [1, 2]
+    assert [row["medal"] for row in rows] == [None, None]
+
+
 def test_standings_use_placement_medals_at_level_8(client, db_session):
     # No cutoffs configured at all: placement medals need no configuration.
     meet = make_meet(db_session)

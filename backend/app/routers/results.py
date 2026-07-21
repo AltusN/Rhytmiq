@@ -19,9 +19,11 @@ Design notes:
   row's level band (app/scoring.py):
   - **Levels 1-3** use the meet's configured `medal_gold_min`/`medal_silver_min` score
     cutoffs, answering "did this total clear a threshold". Those cutoffs are scaled for
-    the levels 1-3 ALL-AROUND (2 apparatus, max 26), so they are meaningful on
-    /all-around and only incidentally applied per-apparatus. Both cutoffs null (the
-    default) means the meet isn't using them, so those rows' `medal` is null.
+    the levels 1-3 ALL-AROUND (2 apparatus, max 26), so they are meaningful ONLY on
+    /all-around: on the per-apparatus /standings endpoint a cutoff-band row's `medal` is
+    always null (a single 0-13 routine can't clear an all-around cutoff, so scoring it
+    would mark everyone bronze -- see `_apparatus_medal`). Both cutoffs null (the default)
+    means the meet isn't using them, so those rows' `medal` is null everywhere.
   - **Levels 4+** use placement: the first three distinct ranks, ties sharing a medal
     (see `assign_placement_medals`). No configuration needed.
   Placement medals are assigned over the rankings actually returned, so -- exactly like
@@ -74,6 +76,21 @@ def _medal_for(level: Level, total: Decimal, placement: Medal | None, meet: Meet
     return placement
 
 
+def _apparatus_medal(
+    level: Level, total: Decimal, placement: Medal | None, meet: Meet
+) -> Medal | None:
+    """
+    Medal for a per-apparatus /standings row. Placement bands medal exactly as on the
+    all-around, but CUTOFF bands (levels 1-3) return None here: their cutoffs are scaled
+    for the 2-apparatus all-around (max 26), so applying them to a single 0-13 routine
+    would mark every competitor bronze -- misleading. Levels 1-3 only earn a cutoff medal
+    on /all-around, where the scale matches.
+    """
+    if profile_for_level(level).medal_mode is MedalMode.cutoff:
+        return None
+    return _medal_for(level, total, placement, meet)
+
+
 @router.get("/{meet_id}/standings", response_model=ApparatusStandingsRead)
 def get_apparatus_standings(
     meet_id: int,
@@ -124,7 +141,7 @@ def get_apparatus_standings(
                 final_score=standing.score.final_score,
                 penalty=standing.score.penalty,
                 total=standing.score.total,
-                medal=_medal_for(
+                medal=_apparatus_medal(
                     standing.routine.entry.level,
                     standing.score.total,
                     placements[index],

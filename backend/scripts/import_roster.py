@@ -22,11 +22,13 @@ Usage (from backend/):
 """
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-from app.models import AgeGroup, Ethnicity, Level
+from sqlalchemy.orm import Session
+
+from app.models import AgeGroup, Club, District, Ethnicity, Gymnast, Level
 
 # District.abbreviation and Club.abbreviation are NOT NULL and the CSV supplies neither,
 # so they are maintained here. An unknown name aborts the run rather than auto-generating
@@ -239,3 +241,176 @@ def check_consistency(rows: list[RosterRow]) -> list[str]:
             errors.append(f"gymnast {first} {last} ({dob}) has more than one gsa_number: {listed}")
 
     return errors
+
+
+@dataclass
+class ImportReport:
+    """What a run did, or in a dry run, would do."""
+
+    districts_created: list[str] = field(default_factory=list)
+    districts_existing: list[str] = field(default_factory=list)
+    clubs_created: list[str] = field(default_factory=list)
+    clubs_existing: list[str] = field(default_factory=list)
+    gymnasts_created: list[str] = field(default_factory=list)
+    gymnasts_existing: list[str] = field(default_factory=list)
+    differences: list[str] = field(default_factory=list)
+
+
+def _resolve_districts(
+    rows: list[RosterRow], session: Session, report: ImportReport
+) -> dict[str, District]:
+    districts: dict[str, District] = {}
+    for name in sorted({row.district_name for row in rows}):
+        district = session.query(District).filter(District.name == name).first()
+        if district is None:
+            district = District(name=name, abbreviation=DISTRICT_ABBREVIATIONS[name])
+            session.add(district)
+            session.flush()  # populate district.id for the clubs below
+            report.districts_created.append(name)
+        else:
+            report.districts_existing.append(name)
+            expected = DISTRICT_ABBREVIATIONS[name]
+            if district.abbreviation != expected:
+                report.differences.append(
+                    f"  district {name}  abbreviation: {district.abbreviation} -> {expected}"
+                )
+        districts[name] = district
+    return districts
+
+
+def _resolve_clubs(
+    rows: list[RosterRow],
+    session: Session,
+    districts: dict[str, District],
+    report: ImportReport,
+) -> dict[tuple[str, str], Club]:
+    clubs: dict[tuple[str, str], Club] = {}
+    for district_name, club_name in sorted({(r.district_name, r.club_name) for r in rows}):
+        district = districts[district_name]
+        label = f"{club_name} ({district_name})"
+        club = (
+            session.query(Club)
+            .filter(Club.district_id == district.id, Club.name == club_name)
+            .first()
+        )
+        if club is None:
+            club = Club(
+                district_id=district.id,
+                name=club_name,
+                abbreviation=CLUB_ABBREVIATIONS[(district_name, club_name)],
+            )
+            session.add(club)
+            session.flush()  # populate club.id for the gymnasts below
+            report.clubs_created.append(label)
+        else:
+            report.clubs_existing.append(label)
+            expected = CLUB_ABBREVIATIONS[(district_name, club_name)]
+            if club.abbreviation != expected:
+                report.differences.append(
+                    f"  club {label}  abbreviation: {club.abbreviation} -> {expected}"
+                )
+        clubs[(district_name, club_name)] = club
+    return clubs
+
+
+def _find_gymnast(session: Session, row: RosterRow) -> Gymnast | None:
+    """
+    GSA number first, identity second.
+
+    Gymnast carries two competing unique keys -- uq_gymnast_gsa_number and
+    uq_gymnast_identity on (first_name, last_name, date_of_birth) -- and they disagree
+    the moment a name spelling or DOB is corrected in the CSV. Matching on identity
+    first would find nothing, attempt an insert, and collide on the GSA constraint
+    mid-run. The GSA number is the real membership ID, so it is the stabler key.
+    """
+    if row.gsa_number:
+        existing = session.query(Gymnast).filter(Gymnast.gsa_number == row.gsa_number).first()
+        if existing is not None:
+            return existing
+    return (
+        session.query(Gymnast)
+        .filter(
+            Gymnast.first_name == row.first_name,
+            Gymnast.last_name == row.last_name,
+            Gymnast.date_of_birth == row.date_of_birth,
+        )
+        .first()
+    )
+
+
+def _show(value: object) -> str:
+    return "NULL" if value is None else str(value)
+
+
+def _gymnast_differences(
+    gymnast: Gymnast, row: RosterRow, club: Club, session: Session
+) -> list[str]:
+    label = f"{row.first_name} {row.last_name}"
+    if row.gsa_number:
+        label += f" (GSA {row.gsa_number})"
+
+    stored_club = session.get(Club, gymnast.club_id) if gymnast.club_id else None
+    candidates = (
+        ("first_name", gymnast.first_name, row.first_name),
+        ("last_name", gymnast.last_name, row.last_name),
+        ("date_of_birth", gymnast.date_of_birth, row.date_of_birth),
+        ("gsa_number", gymnast.gsa_number, row.gsa_number),
+        ("ethnicity", gymnast.ethnicity, row.ethnicity),
+        ("club", stored_club.name if stored_club else None, club.name),
+    )
+    return [
+        f"  {label}  {name}: {_show(stored)} -> {_show(incoming)}"
+        for name, stored, incoming in candidates
+        if stored != incoming
+    ]
+
+
+def _resolve_gymnasts(
+    rows: list[RosterRow],
+    session: Session,
+    clubs: dict[tuple[str, str], Club],
+    report: ImportReport,
+) -> None:
+    # One gymnast may occupy several rows (one per single-apparatus event), so collapse
+    # to the first row per match_key before touching the database.
+    unique_rows: dict[tuple[str, object], RosterRow] = {}
+    for row in rows:
+        unique_rows.setdefault(row.match_key, row)
+
+    for row in unique_rows.values():
+        club = clubs[(row.district_name, row.club_name)]
+        label = f"{row.first_name} {row.last_name}"
+        gymnast = _find_gymnast(session, row)
+        if gymnast is None:
+            session.add(
+                Gymnast(
+                    first_name=row.first_name,
+                    last_name=row.last_name,
+                    date_of_birth=row.date_of_birth,
+                    gsa_number=row.gsa_number,
+                    ethnicity=row.ethnicity,
+                    club_id=club.id,
+                )
+            )
+            session.flush()
+            report.gymnasts_created.append(label)
+        else:
+            report.gymnasts_existing.append(label)
+            # Existing gymnasts are never modified: a stale or wrong CSV must not be able
+            # to damage hand-corrected data. Differences are reported for you to act on.
+            report.differences.extend(_gymnast_differences(gymnast, row, club, session))
+
+
+def import_roster(rows: list[RosterRow], session: Session) -> ImportReport:
+    """
+    Create missing districts, clubs and gymnasts; report differences on existing ones.
+
+    Flushes but deliberately never commits -- the caller decides, which is what makes
+    the dry run a real transaction that gets rolled back rather than a simulation.
+    """
+    report = ImportReport()
+    districts = _resolve_districts(rows, session, report)
+    clubs = _resolve_clubs(rows, session, districts, report)
+    _resolve_gymnasts(rows, session, clubs, report)
+    session.flush()
+    return report

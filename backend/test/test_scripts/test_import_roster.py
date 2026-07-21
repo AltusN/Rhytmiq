@@ -8,8 +8,9 @@ are pure and need no database; import_roster gets the db_session fixture.
 from datetime import date
 from pathlib import Path
 
-from app.models import AgeGroup, Ethnicity, Level
-from scripts.import_roster import RosterRow, check_consistency, parse_csv
+from app.models import AgeGroup, Club, District, Ethnicity, Gymnast, Level
+from scripts.import_roster import RosterRow, check_consistency, import_roster, parse_csv
+from test.conftest import make_club, make_district
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -193,3 +194,119 @@ def test_one_identity_with_two_gsa_numbers_is_rejected():
     assert len(errors) == 1
     assert "has more than one gsa_number" in errors[0]
     assert "Anna Petrov" in errors[0]
+
+
+def test_cold_start_creates_district_club_and_gymnast(db_session):
+    report = import_roster([make_row()], db_session)
+
+    assert report.districts_created == ["Eden"]
+    assert report.clubs_created == ["Zest (Eden)"]
+    assert len(report.gymnasts_created) == 1
+    assert report.differences == []
+
+    district = db_session.query(District).filter_by(name="Eden").one()
+    assert district.abbreviation == "EDEN"
+    club = db_session.query(Club).filter_by(name="Zest").one()
+    assert club.abbreviation == "ZEST"
+    assert club.district_id == district.id
+    gymnast = db_session.query(Gymnast).filter_by(gsa_number="10001").one()
+    assert gymnast.first_name == "Anna"
+    assert gymnast.club_id == club.id
+    assert gymnast.country_code is None
+
+
+def test_rerunning_the_same_rows_is_a_no_op(db_session):
+    rows = [make_row()]
+    import_roster(rows, db_session)
+
+    report = import_roster(rows, db_session)
+
+    assert report.districts_created == []
+    assert report.clubs_created == []
+    assert report.gymnasts_created == []
+    assert len(report.gymnasts_existing) == 1
+    assert report.differences == []
+    assert db_session.query(Gymnast).count() == 1
+    assert db_session.query(Club).count() == 1
+    assert db_session.query(District).count() == 1
+
+
+def test_duplicate_rows_for_one_gymnast_create_a_single_row(db_session):
+    # Mirrors the real file's three two-row gymnasts.
+    report = import_roster([make_row(row_number=2), make_row(row_number=3)], db_session)
+
+    assert len(report.gymnasts_created) == 1
+    assert db_session.query(Gymnast).count() == 1
+
+
+def test_gsa_number_matches_a_gymnast_whose_name_changed(db_session):
+    import_roster([make_row(first_name="Anné")], db_session)
+
+    report = import_roster([make_row(first_name="Anne")], db_session)
+
+    assert report.gymnasts_created == []
+    assert len(report.gymnasts_existing) == 1
+    assert any("first_name: Anné -> Anne" in d for d in report.differences)
+    # Reported, not applied.
+    assert db_session.query(Gymnast).one().first_name == "Anné"
+
+
+def test_blank_gsa_number_falls_back_to_identity_matching(db_session):
+    import_roster([make_row(gsa_number=None)], db_session)
+
+    report = import_roster([make_row(gsa_number=None)], db_session)
+
+    assert report.gymnasts_created == []
+    assert len(report.gymnasts_existing) == 1
+    assert db_session.query(Gymnast).count() == 1
+
+
+def test_a_changed_club_is_reported_but_not_applied(db_session):
+    district = make_district(db_session, name="Eden", abbreviation="EDEN")
+    old_club = make_club(db_session, district=district, name="Old Club", abbreviation="OLD")
+    db_session.add(
+        Gymnast(
+            first_name="Anna",
+            last_name="Petrov",
+            date_of_birth=date(2016, 10, 1),
+            gsa_number="10001",
+            club_id=old_club.id,
+        )
+    )
+    db_session.flush()
+
+    report = import_roster([make_row()], db_session)
+
+    assert report.gymnasts_created == []
+    assert any("club: Old Club -> Zest" in d for d in report.differences)
+    gymnast = db_session.query(Gymnast).filter_by(gsa_number="10001").one()
+    assert gymnast.club_id == old_club.id  # unchanged
+
+
+def test_a_newly_recorded_ethnicity_is_reported_but_not_applied(db_session):
+    import_roster([make_row(ethnicity=None)], db_session)
+
+    report = import_roster([make_row(ethnicity=Ethnicity.white)], db_session)
+
+    assert any("ethnicity: NULL -> white" in d for d in report.differences)
+    assert db_session.query(Gymnast).one().ethnicity is None
+
+
+def test_blank_ethnicity_is_stored_as_null(db_session):
+    import_roster([make_row(ethnicity=None)], db_session)
+
+    gymnast = db_session.query(Gymnast).one()
+    assert gymnast.ethnicity is None
+    assert gymnast.ethnicity is not Ethnicity.prefer_not_to_say
+
+
+def test_import_does_not_commit(db_session):
+    import_roster([make_row()], db_session)
+
+    # The fixture binds the Session to a connection that already has a transaction open,
+    # so SQLAlchemy runs the Session on a SAVEPOINT. A rollback here therefore undoes
+    # only what import_roster did, leaving the fixture's outer transaction healthy. Had
+    # import_roster committed, the savepoint would already be released and the row would
+    # survive this rollback.
+    db_session.rollback()
+    assert db_session.query(Gymnast).count() == 0

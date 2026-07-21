@@ -37,7 +37,6 @@
       "Bash(docker compose ps*)"
     ],
     "deny": [
-      "Bash(git push*)",
       "Bash(git reset --hard*)",
       "Bash(git clean *)",
       "Bash(rm -rf *)"

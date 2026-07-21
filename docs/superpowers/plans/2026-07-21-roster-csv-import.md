@@ -14,7 +14,7 @@
 - Scope is `District`, `Club`, `Gymnast` **only**. Do not create `MeetEntry` or `Routine` — that is a separate later pass.
 - All commands run from `backend/` with the venv active: `cd backend && source .venv/bin/activate`.
 - The test DB must be running: from the **repo root**, `make dev` (docker compose + alembic upgrade). Tests fail with a connection error otherwise.
-- `ruff` line-length is 100, `target-version = "py312"`. Run `ruff check . && ruff format .` before every commit.
+- `ruff` line-length is 100, `target-version = "py312"`. Lint/format **only the files this plan touches** — `ruff check scripts/import_roster.py test/test_scripts/ && ruff format scripts/import_roster.py test/test_scripts/`. Running `ruff format .` from `backend/` reformats 15 unrelated pre-existing files; do not do that.
 - Commit subjects **must** start with `feat:` / `fix:` / `chore:` / `docs:` / `test:`.
 - The file `backend/scripts/import_roster.py` already exists and is **empty**. Do not create it; write into it.
 - Never modify `bulkupload/rhythmiq_import_participants.csv`. It is real participant data.
@@ -25,7 +25,8 @@
 | File | Responsibility |
 |---|---|
 | `backend/scripts/import_roster.py` (exists, empty) | Everything: abbreviation tables, `RosterRow`, `parse_csv`, `check_consistency`, `ImportReport`, `import_roster`, `format_report`, `main`. ~250 lines — one file matches `seed_demo_data.py`'s single-file convention. |
-| `backend/test/test_scripts/test_import_roster.py` (create) | All tests. No `__init__.py` needed — `test/test_models/` and friends have none. |
+| `backend/test/test_scripts/__init__.py` (create, empty) | Matches `test/test_models/`, `test/test_routers/` and `test/test_schemas/`, which each have one. |
+| `backend/test/test_scripts/test_import_roster.py` (create) | All tests. |
 | `backend/test/test_scripts/fixtures/roster_sample.csv` (create) | Tiny CSV fixture for the parse round-trip, including a UTF-8 name. |
 | `CLAUDE.md` (modify) | One bullet documenting the script, next to the `seed_demo_data.py` bullet. |
 
@@ -461,7 +462,7 @@ If the distinct count is not 90, `match_key` is wrong — stop and fix it before
 - [ ] **Step 7: Lint and commit**
 
 ```bash
-ruff check . && ruff format .
+ruff check scripts/import_roster.py test/test_scripts/ && ruff format scripts/import_roster.py test/test_scripts/
 git add scripts/import_roster.py test/test_scripts/
 git commit -m "feat: parse and validate roster import CSV"
 ```
@@ -623,7 +624,7 @@ Expected exactly: `consistency errors: []`
 - [ ] **Step 6: Lint and commit**
 
 ```bash
-ruff check . && ruff format .
+ruff check scripts/import_roster.py test/test_scripts/ && ruff format scripts/import_roster.py test/test_scripts/
 git add scripts/import_roster.py test/test_scripts/test_import_roster.py
 git commit -m "feat: cross-row consistency checks for roster import"
 ```
@@ -997,7 +998,7 @@ Expected: all tests pass. Nothing outside `scripts/` and `test/test_scripts/` ch
 - [ ] **Step 6: Lint and commit**
 
 ```bash
-ruff check . && ruff format .
+ruff check scripts/import_roster.py test/test_scripts/ && ruff format scripts/import_roster.py test/test_scripts/
 git add scripts/import_roster.py test/test_scripts/test_import_roster.py
 git commit -m "feat: import roster rows into districts, clubs and gymnasts"
 ```
@@ -1217,7 +1218,7 @@ In `CLAUDE.md`, under **Architecture**, immediately after the `scripts/seed_demo
 
 ```bash
 pytest
-ruff check . && ruff format .
+ruff check scripts/import_roster.py test/test_scripts/ && ruff format scripts/import_roster.py test/test_scripts/
 git add scripts/import_roster.py test/test_scripts/test_import_roster.py ../CLAUDE.md
 git commit -m "feat: roster import CLI with dry-run default and difference report"
 ```

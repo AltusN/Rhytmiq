@@ -207,7 +207,7 @@ Districts:   3 (0 created, 3 existing)
 Clubs:       6 (2 created, 4 existing)
 Gymnasts:   90 (88 created, 2 existing)
 
-2 existing gymnasts differ from the CSV (nothing changed):
+2 differences found (nothing changed):
   Lia Hamman (GSA 31392)  club: Fynbos Gymnastics Club -> Van Der Stel
   Pippa Benade (GSA 54251)  ethnicity: NULL -> white
 

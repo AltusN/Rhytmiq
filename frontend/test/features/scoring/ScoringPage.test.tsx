@@ -588,6 +588,33 @@ it("saves an E deduction as an execution score", async () => {
   expect(posted()[0]).toMatchObject({ panel: "execution", value: "8.50" });
 });
 
+it("loads a level 1-3 final mark even when a different judge than the F slot entered it", async () => {
+  // Reproduces the reported bug: the routine's final mark belongs to judge 9, but the
+  // panel's F slot is judge 1 (see renderScoringPageWithEntry). The mark must still load,
+  // recalled by the judge who actually gave it, not the current F slot (seeded data, or a
+  // panel reassigned after scoring). See reconcileBoxesWithHistory.
+  await renderScoringPageWithEntry({
+    level: "level_1",
+    existingScores: [{ id: 1, judge_id: 9, panel: "final", value: "10.10" }],
+  });
+
+  expect(await screen.findByLabelText("Final")).toHaveValue("10.10");
+});
+
+it("loads an 8+ execution mark entered by a judge no longer in an E slot", async () => {
+  // The multi-judge case: judge 8 gave an execution mark, but the current E slots are
+  // judges 3/1/2/1 (see renderScoringPageWithEntry) -- judge 8 is off-panel. The mark
+  // must still surface in an E box (historically), not vanish while it counts in the
+  // total, and not get duplicated on the next save.
+  await renderScoringPageWithEntry({
+    level: "level_8",
+    existingScores: [{ id: 1, judge_id: 8, panel: "execution", value: "8.50" }],
+  });
+
+  // 8.50 stored -> shown as the 1.50 deduction the judge typed, in the first E box.
+  expect(await screen.findByLabelText("E1")).toHaveValue("1.50");
+});
+
 it("shows a stored execution score back as a deduction", async () => {
   await renderScoringPageWithEntry({
     level: "level_8",

@@ -16,7 +16,12 @@ import {
   type Band,
 } from "../../lib/score-math";
 import type { PanelAssignment } from "./panel-storage";
-import type { BoxDef, BoxKey } from "./save-diff";
+import {
+  findBoxScore,
+  reconcileBoxesWithHistory,
+  type BoxDef,
+  type BoxKey,
+} from "./save-diff";
 import { saveScores, type SaveScoresResult } from "./save-scores";
 
 const BOX_LABELS: Record<BoxKey, string> = {
@@ -141,7 +146,10 @@ export function ScoreForm({
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const band = profileForLevel(entry.level).band;
-  const boxes = boxesFor(panel, band);
+  // Rebind boxes to the judges who actually gave this routine's marks, so a scored
+  // routine shows its historical record rather than the current panel seating (which may
+  // have moved, or never matched seeded/imported data). See reconcileBoxesWithHistory.
+  const boxes = reconcileBoxesWithHistory(boxesFor(panel, band), existingScores);
 
   const defaultValues = useMemo<FormValues>(() => {
     const values: FormValues = {
@@ -153,9 +161,7 @@ export function ScoreForm({
     };
     for (const box of boxes) {
       if (box.judgeId === undefined) continue;
-      const existing = existingScores.find(
-        (s) => s.judge_id === box.judgeId && s.panel === box.panel,
-      );
+      const existing = findBoxScore(box, existingScores);
       if (!existing) continue;
       const stored = toNum(existing.value);
       // Load direction of the E round trip: the API stores an execution score, the

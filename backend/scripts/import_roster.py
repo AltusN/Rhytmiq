@@ -349,20 +349,35 @@ def _gymnast_differences(
     if row.gsa_number:
         label += f" (GSA {row.gsa_number})"
 
-    stored_club = session.get(Club, gymnast.club_id) if gymnast.club_id else None
     candidates = (
         ("first_name", gymnast.first_name, row.first_name),
         ("last_name", gymnast.last_name, row.last_name),
         ("date_of_birth", gymnast.date_of_birth, row.date_of_birth),
         ("gsa_number", gymnast.gsa_number, row.gsa_number),
         ("ethnicity", gymnast.ethnicity, row.ethnicity),
-        ("club", stored_club.name if stored_club else None, club.name),
     )
-    return [
+    differences = [
         f"  {label}  {name}: {_show(stored)} -> {_show(incoming)}"
         for name, stored, incoming in candidates
         if stored != incoming
     ]
+
+    # Compared by id, never by name: uq_club_name is scoped by district_id, so two
+    # districts may each have a club of the same name and a name comparison would
+    # silently miss a move between them.
+    if gymnast.club_id != club.id:
+        stored_club = session.get(Club, gymnast.club_id) if gymnast.club_id else None
+        stored_name = stored_club.name if stored_club else None
+        incoming_name = club.name
+        if stored_club is not None and stored_name == incoming_name:
+            # Same name in two districts -- qualify both sides so the line does not
+            # read as the nonsense "club: Zest -> Zest".
+            stored_district = session.get(District, stored_club.district_id)
+            stored_name = f"{stored_name} ({stored_district.name})"
+            incoming_name = f"{incoming_name} ({row.district_name})"
+        differences.append(f"  {label}  club: {_show(stored_name)} -> {incoming_name}")
+
+    return differences
 
 
 def _resolve_gymnasts(

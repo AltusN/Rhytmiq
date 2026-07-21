@@ -283,6 +283,54 @@ def test_a_changed_club_is_reported_but_not_applied(db_session):
     assert gymnast.club_id == old_club.id  # unchanged
 
 
+def test_a_move_between_same_named_clubs_in_different_districts_is_reported(db_session):
+    # uq_club_name is scoped by district_id, so two districts may each have a "Zest".
+    # A name-only comparison would see "Zest" == "Zest" and report no change at all.
+    other_district = make_district(db_session, name="Cape Winelands", abbreviation="CWDM")
+    other_zest = make_club(db_session, district=other_district, name="Zest", abbreviation="ZST2")
+    db_session.add(
+        Gymnast(
+            first_name="Anna",
+            last_name="Petrov",
+            date_of_birth=date(2016, 10, 1),
+            gsa_number="10001",
+            club_id=other_zest.id,
+        )
+    )
+    db_session.flush()
+
+    # make_row() defaults to district Eden / club Zest -- a *different* Zest.
+    report = import_roster([make_row()], db_session)
+
+    assert report.gymnasts_created == []
+    club_diffs = [d for d in report.differences if "club:" in d]
+    assert len(club_diffs) == 1
+    assert "Zest (Cape Winelands) -> Zest (Eden)" in club_diffs[0]
+    gymnast = db_session.query(Gymnast).filter_by(gsa_number="10001").one()
+    assert gymnast.club_id == other_zest.id  # unchanged
+
+
+def test_a_district_abbreviation_mismatch_is_reported(db_session):
+    make_district(db_session, name="Eden", abbreviation="EDN")  # table says EDEN
+
+    report = import_roster([make_row()], db_session)
+
+    assert any("district Eden  abbreviation: EDN -> EDEN" in d for d in report.differences)
+    district = db_session.query(District).filter_by(name="Eden").one()
+    assert district.abbreviation == "EDN"  # unchanged
+
+
+def test_a_club_abbreviation_mismatch_is_reported(db_session):
+    district = make_district(db_session, name="Eden", abbreviation="EDEN")
+    make_club(db_session, district=district, name="Zest", abbreviation="ZST")  # table says ZEST
+
+    report = import_roster([make_row()], db_session)
+
+    assert any("club Zest (Eden)  abbreviation: ZST -> ZEST" in d for d in report.differences)
+    club = db_session.query(Club).filter_by(name="Zest").one()
+    assert club.abbreviation == "ZST"  # unchanged
+
+
 def test_a_newly_recorded_ethnicity_is_reported_but_not_applied(db_session):
     import_roster([make_row(ethnicity=None)], db_session)
 

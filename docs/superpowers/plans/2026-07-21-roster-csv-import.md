@@ -1,5 +1,21 @@
 # Roster CSV Import Implementation Plan
 
+> **⚠️ EXECUTED AND SUPERSEDED — do not copy code from this plan.**
+> This plan was executed on 2026-07-21. Code review found four defects **in the plan's own
+> example code**, all fixed in the shipped implementation. The snippets below are left as
+> the historical record of what was planned; `backend/scripts/import_roster.py` is the
+> only source of truth. Specifically:
+>
+> | Plan snippet | Defect | Fixed in |
+> |---|---|---|
+> | `_gymnast_differences` (Task 3, Step 3) | Compared clubs by **name**; `uq_club_name` is district-scoped, so a move between two same-named clubs in different districts was silently reported as no change | `d09ef11` |
+> | `format_report` (Task 4, Step 3) | `count = len(report.gymnasts_existing)` counted every *matched* gymnast, not the differences; also mislabelled district/club differences as gymnasts | `9921b41` |
+> | `main()` (Task 4, Step 3) | Printed `"Committed."` **before** `session.commit()`, so a failed commit printed success then a traceback | `9921b41` |
+> | Test comment in `test_import_does_not_commit` (Task 3, Step 1) | Claimed the fixture runs on a SAVEPOINT. It does not — verified empirically; `conditional_savepoint` resolves to a rollback-only join | final fixes commit |
+>
+> The shipped suite has **36** tests, not the 26 this plan predicts. Task counts in the
+> steps below are the pre-fix numbers.
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A re-runnable CLI script that imports a participant CSV into `District`, `Club` and `Gymnast`, creating missing reference data and reporting — never applying — differences on gymnasts that already exist.
@@ -917,6 +933,9 @@ def _gymnast_differences(
         ("date_of_birth", gymnast.date_of_birth, row.date_of_birth),
         ("gsa_number", gymnast.gsa_number, row.gsa_number),
         ("ethnicity", gymnast.ethnicity, row.ethnicity),
+        # DEFECT (fixed in d09ef11): compares clubs by NAME. uq_club_name is
+        # district-scoped, so a move between two same-named clubs in different
+        # districts is silently missed. The shipped code compares club_id.
         ("club", stored_club.name if stored_club else None, club.name),
     )
     return [
@@ -1104,6 +1123,9 @@ def format_report(report: ImportReport, *, committed: bool) -> str:
     ]
 
     if report.differences:
+        # DEFECT (fixed in 9921b41): counts every MATCHED gymnast, not the
+        # differences, and mislabels district/club differences as gymnasts. The
+        # shipped code uses len(report.differences) with entity-neutral wording.
         count = len(report.gymnasts_existing)
         noun = "gymnast differs" if count == 1 else "gymnasts differ"
         lines.append("")
@@ -1143,6 +1165,8 @@ def main() -> int:
     session = SessionLocal()
     try:
         report = import_roster(rows, session)
+        # DEFECT (fixed in 9921b41): prints before committing, so a failed commit
+        # emits "Committed." then a traceback. The shipped code commits first.
         print(format_report(report, committed=args.commit))
         if args.commit:
             session.commit()

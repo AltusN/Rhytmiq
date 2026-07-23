@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { apiDetail, client } from "../../api/client";
@@ -45,6 +45,13 @@ export function EntryCreateForm({
       },
     });
   const kind = watch("kind");
+  const competitorOptions = useMemo(
+    () =>
+      kind === "gymnast"
+        ? gymnasts.map((g) => ({ id: g.id, label: `${g.first_name} ${g.last_name}` }))
+        : groups.map((g) => ({ id: g.id, label: g.name })),
+    [kind, gymnasts, groups],
+  );
 
   const createMutation = useMutation({
     mutationFn: async (values: EntryFormValues) => {
@@ -101,11 +108,7 @@ export function EntryCreateForm({
           ariaLabel="Competitor"
           value={watch("competitorId")}
           onChange={(id) => setValue("competitorId", id, { shouldValidate: true })}
-          options={
-            kind === "gymnast"
-              ? gymnasts.map((g) => ({ id: g.id, label: `${g.first_name} ${g.last_name}` }))
-              : groups.map((g) => ({ id: g.id, label: g.name }))
-          }
+          options={competitorOptions}
         />
         {formState.errors.competitorId && (
           <span className="text-xs text-red-700">{formState.errors.competitorId.message}</span>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 export interface CompetitorComboboxOption {
   id: number;
@@ -29,7 +29,6 @@ export function CompetitorCombobox({
   const [text, setText] = useState("");
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const rootRef = useRef<HTMLDivElement>(null);
 
   // Keep the input text in sync with the externally-controlled value: fires only when a
   // selection is committed or the option list swaps (gymnast<->group), never on keystrokes
@@ -51,7 +50,7 @@ export function CompetitorCombobox({
   }
 
   return (
-    <div ref={rootRef} className="relative">
+    <div className="relative">
       <input
         type="text"
         role="combobox"

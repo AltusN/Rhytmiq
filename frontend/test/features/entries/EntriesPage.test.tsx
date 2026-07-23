@@ -136,6 +136,9 @@ test("switching to Group clears a chosen gymnast", async () => {
 
   await userEvent.click(screen.getByLabelText("Group"));
   expect(screen.getByLabelText("Competitor")).toHaveValue("");
+
+  await userEvent.click(screen.getByRole("button", { name: "Create entry" }));
+  expect(await screen.findByText("Pick a competitor")).toBeInTheDocument();
 });
 
 test("age group select offers both bandings in age order", async () => {

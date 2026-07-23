@@ -5,10 +5,21 @@ import { apiDetail, client, toNum } from "../../api/client";
 import type { AgeGroup, Apparatus, Level, MeetRead } from "../../api/types";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { AGE_GROUPS, APPARATUS, LEVELS, labelize } from "../../lib/domain";
+import { profileForLevel } from "../../lib/score-math";
 
 export const POLL_MS = 5000;
 
 const fmt = (v: number | string) => toNum(v).toFixed(2);
+
+// D/A/E only mean something for the panels a row's band actually uses; showing 0.00 for a
+// levels 1-3 routine (whose whole score is the single `final` mark) reads as a real zero.
+// Render "—" for a panel the band doesn't score. Computed per row so a mixed "All levels"
+// table renders each row by its own band.
+const DASH = "—";
+function panelCell(level: string, panels: string[], value: number | string): string {
+  const active = profileForLevel(level).panels;
+  return panels.some((p) => active.includes(p)) ? fmt(value) : DASH;
+}
 
 export function StandingsPage() {
   const meet = useOutletContext<MeetRead>();
@@ -140,9 +151,15 @@ export function StandingsPage() {
                 <td className="p-2">{row.bib_number}</td>
                 <td className="p-2">{row.competitor_name}</td>
                 <td className="p-2">{labelize(row.level)}</td>
-                <td className="p-2 text-right">{fmt(row.d_score)}</td>
-                <td className="p-2 text-right">{fmt(row.a_score)}</td>
-                <td className="p-2 text-right">{fmt(row.e_score)}</td>
+                <td className="p-2 text-right">
+                  {panelCell(row.level, ["difficulty_body", "difficulty_apparatus"], row.d_score)}
+                </td>
+                <td className="p-2 text-right">
+                  {panelCell(row.level, ["artistry"], row.a_score)}
+                </td>
+                <td className="p-2 text-right">
+                  {panelCell(row.level, ["execution"], row.e_score)}
+                </td>
                 <td className="p-2 text-right">{fmt(row.penalty)}</td>
                 <td className="p-2 text-right font-semibold">{fmt(row.total)}</td>
                 <td className="p-2">{row.medal ?? ""}</td>

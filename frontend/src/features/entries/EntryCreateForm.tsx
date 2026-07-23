@@ -1,12 +1,13 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { apiDetail, client } from "../../api/client";
 import type { AgeGroup, GroupRead, GymnastRead, Level } from "../../api/types";
 import { ErrorBanner } from "../../components/ErrorBanner";
 import { AGE_GROUPS, LEVELS, labelize } from "../../lib/domain";
+import { CompetitorCombobox } from "./CompetitorCombobox";
 
 const entrySchema = z.object({
   kind: z.enum(["gymnast", "group"]),
@@ -31,7 +32,7 @@ export function EntryCreateForm({
 }) {
   const queryClient = useQueryClient();
   const [serverError, setServerError] = useState<string | null>(null);
-  const { register, handleSubmit, watch, reset, formState } =
+  const { register, handleSubmit, watch, reset, setValue, formState } =
     useForm<EntryFormValues>({
       resolver: zodResolver(entrySchema),
       defaultValues: {
@@ -44,6 +45,13 @@ export function EntryCreateForm({
       },
     });
   const kind = watch("kind");
+  const competitorOptions = useMemo(
+    () =>
+      kind === "gymnast"
+        ? gymnasts.map((g) => ({ id: g.id, label: `${g.first_name} ${g.last_name}` }))
+        : groups.map((g) => ({ id: g.id, label: g.name })),
+    [kind, gymnasts, groups],
+  );
 
   const createMutation = useMutation({
     mutationFn: async (values: EntryFormValues) => {
@@ -78,28 +86,30 @@ export function EntryCreateForm({
       <ErrorBanner message={serverError} />
       <fieldset className="flex gap-4">
         <label className="flex items-center gap-1 text-sm">
-          <input type="radio" value="gymnast" {...register("kind")} /> Gymnast
+          <input
+            type="radio"
+            value="gymnast"
+            {...register("kind", { onChange: () => setValue("competitorId", "") })}
+          />{" "}
+          Gymnast
         </label>
         <label className="flex items-center gap-1 text-sm">
-          <input type="radio" value="group" {...register("kind")} /> Group
+          <input
+            type="radio"
+            value="group"
+            {...register("kind", { onChange: () => setValue("competitorId", "") })}
+          />{" "}
+          Group
         </label>
       </fieldset>
       <label className="text-sm">
         Competitor
-        <select {...register("competitorId")} className="mt-1 block w-full rounded border border-gray-300 p-1" aria-label="Competitor">
-          <option value="">— pick —</option>
-          {kind === "gymnast"
-            ? gymnasts.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.first_name} {g.last_name}
-                </option>
-              ))
-            : groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-        </select>
+        <CompetitorCombobox
+          ariaLabel="Competitor"
+          value={watch("competitorId")}
+          onChange={(id) => setValue("competitorId", id, { shouldValidate: true })}
+          options={competitorOptions}
+        />
         {formState.errors.competitorId && (
           <span className="text-xs text-red-700">{formState.errors.competitorId.message}</span>
         )}

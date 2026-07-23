@@ -475,6 +475,58 @@ def test_an_over_long_gsa_number_is_reported(tmp_path):
     assert "exceeds 32 characters" in errors[0]
 
 
+def test_blank_date_of_birth_parses_as_none(tmp_path):
+    path = write_csv(
+        tmp_path,
+        "Carla,Smith,,10009,white,Zest,Eden,level_4,u13\n",
+    )
+
+    rows, errors = parse_csv(path)
+
+    assert errors == []
+    assert len(rows) == 1
+    assert rows[0].date_of_birth is None
+    assert rows[0].identity == ("Carla", "Smith", None)
+
+
+def test_present_but_unparseable_date_of_birth_is_an_error_and_drops_the_row(tmp_path):
+    path = write_csv(
+        tmp_path,
+        "Carla,Smith,31-12-2016,10009,white,Zest,Eden,level_4,u13\n",
+    )
+
+    rows, errors = parse_csv(path)
+
+    assert rows == []  # unparseable DOB drops the row
+    assert len(errors) == 1
+    assert "date_of_birth '31-12-2016' is not ISO YYYY-MM-DD" in errors[0]
+
+
+def test_blank_dob_gymnast_is_created_and_matched_by_gsa_on_reimport(db_session):
+    row = make_row(gsa_number="10009", date_of_birth=None)
+    import_roster([row], db_session)
+
+    report = import_roster([row], db_session)
+
+    assert report.gymnasts_created == []
+    assert len(report.gymnasts_existing) == 1
+    assert db_session.query(Gymnast).filter_by(gsa_number="10009").one().date_of_birth is None
+
+
+def test_report_notes_gymnasts_with_no_date_of_birth(db_session):
+    report = import_roster([make_row(date_of_birth=None)], db_session)
+
+    text = format_report(report, committed=False)
+
+    assert "1 gymnast has no date of birth (matched by GSA number only)" in text
+
+
+def test_report_omits_the_no_dob_line_when_all_have_a_date(db_session):
+    report = import_roster([make_row()], db_session)
+
+    assert "no date of birth" not in format_report(report, committed=False)
+
+
 def test_a_byte_order_mark_does_not_break_the_header(tmp_path):
     # Excel's "CSV UTF-8" export writes a BOM. Without utf-8-sig the first field name
     # reads as "﻿first_name" and the run dies claiming first_name is missing.

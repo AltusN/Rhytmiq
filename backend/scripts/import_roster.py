@@ -12,6 +12,13 @@ Of the CSV's pass-2 columns, `level` and `age_group` are validated but NOT persi
 (they are not in REQUIRED_COLUMNS and are never read). All six are pass-2 input and must
 stay in the file.
 
+A blank date_of_birth is valid and stored as NULL. Consequence: uq_gymnast_identity
+(first_name, last_name, date_of_birth) stops constraining, because Postgres treats
+NULLs as distinct in a unique index -- unlimited (name, name, NULL) rows are legal.
+The GSA number is then the ONLY thing preventing duplicate people. The level-4-up
+roster supplies a unique GSA on every row, so it is safe; the exposure is a future
+hand-entered gymnast with neither a DOB nor a GSA number.
+
 Dry run is the default; --commit is required to write. A dry run is not a simulation --
 it performs the real inserts inside a transaction and rolls back, so constraint
 violations surface before you commit.
@@ -75,7 +82,7 @@ class RosterRow:
     row_number: int
     first_name: str
     last_name: str
-    date_of_birth: date
+    date_of_birth: date | None
     gsa_number: str | None
     ethnicity: Ethnicity | None
     district_name: str
@@ -84,8 +91,10 @@ class RosterRow:
     age_group: AgeGroup
 
     @property
-    def identity(self) -> tuple[str, str, date]:
-        """The uq_gymnast_identity tuple."""
+    def identity(self) -> tuple[str, str, date | None]:
+        """The uq_gymnast_identity tuple. A NULL DOB is legal but stops the identity
+        index constraining (Postgres treats NULLs as distinct), so GSA number is then
+        the only dedup key -- see the module docstring."""
         return (self.first_name, self.last_name, self.date_of_birth)
 
     @property
@@ -119,15 +128,20 @@ def _parse_row(number: int, raw: dict[str, str], errors: list[str]) -> RosterRow
     if len(gsa_number) > 32:
         errors.append(f"row {number}: gsa_number {gsa_number!r} exceeds 32 characters")
 
+    # Blank is valid and means "not recorded" -> None. A non-blank value that will
+    # not parse is an error AND drops the row; dob_unparseable keeps that case
+    # distinct from a legitimately blank (None) date, which must NOT drop the row.
     date_of_birth = None
-    try:
-        date_of_birth = datetime.strptime(cell("date_of_birth"), "%Y-%m-%d").date()
-        if date_of_birth > date.today():
-            errors.append(f"row {number}: date_of_birth {date_of_birth} is in the future")
-    except ValueError:
-        errors.append(
-            f"row {number}: date_of_birth {cell('date_of_birth')!r} is not ISO YYYY-MM-DD"
-        )
+    dob_unparseable = False
+    dob_cell = cell("date_of_birth")
+    if dob_cell:
+        try:
+            date_of_birth = datetime.strptime(dob_cell, "%Y-%m-%d").date()
+            if date_of_birth > date.today():
+                errors.append(f"row {number}: date_of_birth {date_of_birth} is in the future")
+        except ValueError:
+            dob_unparseable = True
+            errors.append(f"row {number}: date_of_birth {dob_cell!r} is not ISO YYYY-MM-DD")
 
     # A blank cell means the question was never asked -> NULL. It is NOT
     # prefer_not_to_say, which means the gymnast was asked and declined.
@@ -165,8 +179,9 @@ def _parse_row(number: int, raw: dict[str, str], errors: list[str]) -> RosterRow
             f'      ("{district_name}", "{club_name}"): "ABBREV",'
         )
 
-    # Without these three there is no row to build. Everything else is still reported.
-    if date_of_birth is None or level is None or age_group is None:
+    # Without a valid level, age group, or (if present) a parseable DOB there is no
+    # row to build. A legitimately blank DOB is fine. Everything else is still reported.
+    if dob_unparseable or level is None or age_group is None:
         return None
 
     return RosterRow(
@@ -264,6 +279,7 @@ class ImportReport:
     clubs_existing: list[str] = field(default_factory=list)
     gymnasts_created: list[str] = field(default_factory=list)
     gymnasts_existing: list[str] = field(default_factory=list)
+    gymnasts_without_dob: int = 0
     differences: list[str] = field(default_factory=list)
 
 
@@ -343,6 +359,8 @@ def _find_gymnast(session: Session, row: RosterRow) -> Gymnast | None:
         .filter(
             Gymnast.first_name == row.first_name,
             Gymnast.last_name == row.last_name,
+            # SQLAlchemy renders `== None` as `IS NULL`, not `= NULL`, so this keeps
+            # working for a null DOB. The equivalent raw SQL would silently match nothing.
             Gymnast.date_of_birth == row.date_of_birth,
         )
         .first()
@@ -406,6 +424,8 @@ def _resolve_gymnasts(
     for row in unique_rows.values():
         club = clubs[(row.district_name, row.club_name)]
         label = f"{row.first_name} {row.last_name}"
+        if row.date_of_birth is None:
+            report.gymnasts_without_dob += 1
         gymnast = _find_gymnast(session, row)
         if gymnast is None:
             session.add(
@@ -462,6 +482,12 @@ def format_report(report: ImportReport, *, committed: bool) -> str:
         lines.append("")
         lines.append(f"{count} {noun} found (nothing changed):")
         lines.extend(report.differences)
+
+    if report.gymnasts_without_dob:
+        n = report.gymnasts_without_dob
+        noun = "gymnast has" if n == 1 else "gymnasts have"
+        lines.append("")
+        lines.append(f"{n} {noun} no date of birth (matched by GSA number only)")
 
     lines.append("")
     if committed:

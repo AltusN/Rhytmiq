@@ -660,6 +660,7 @@ def test_blank_district_with_an_ambiguous_club_is_an_error(tmp_path, monkeypatch
 
     assert any("club 'Shared' is in multiple districts" in e for e in errors)
     assert any("Cape Winelands" in e and "Eden" in e for e in errors)
+    assert not any("unknown club" in e for e in errors)
 
 
 def test_blank_district_with_unknown_club_reports_club_not_empty_district(tmp_path):

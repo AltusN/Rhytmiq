@@ -178,11 +178,13 @@ def _parse_row(number: int, raw: dict[str, str], errors: list[str]) -> RosterRow
     # A blank district is derived from the club: exactly one district -> use it; two or
     # more -> ambiguous, report; unknown club -> leave blank and let the club check below
     # report it (no redundant "unknown district ''").
+    district_ambiguous = False
     if not district_name:
         candidate_districts = DISTRICTS_BY_CLUB.get(club_name)
         if candidate_districts is not None and len(candidate_districts) == 1:
             district_name = next(iter(candidate_districts))
         elif candidate_districts is not None:  # two or more
+            district_ambiguous = True
             errors.append(
                 f"row {number}: club {club_name!r} is in multiple districts "
                 f"{sorted(candidate_districts)}; set district_name in the CSV"
@@ -196,7 +198,10 @@ def _parse_row(number: int, raw: dict[str, str], errors: list[str]) -> RosterRow
             f"  Add to DISTRICT_ABBREVIATIONS in scripts/import_roster.py:\n"
             f'      "{district_name}": "ABBREV",'
         )
-    if (district_name, club_name) not in CLUB_ABBREVIATIONS:
+    # A club that fired the ambiguity branch above is a KNOWN club (it's in
+    # CLUB_ABBREVIATIONS under two districts) -- skip this check so an ambiguous
+    # district does not also produce a bogus "unknown club (district '')" error.
+    if not district_ambiguous and (district_name, club_name) not in CLUB_ABBREVIATIONS:
         errors.append(
             f"row {number}: unknown club {club_name!r} (district {district_name!r})\n"
             f"  Add to CLUB_ABBREVIATIONS in scripts/import_roster.py:\n"
